@@ -1,6 +1,8 @@
 #include "libc.h"
 
 static int syscall(int call, char* argument) {
+    int status = 0;
+
     if (call == HALT) {
         if (argument != NULL)
             return ERR;
@@ -27,7 +29,7 @@ int printi(int value) {
 int geti() {
     int val = -1;
 
-    if (syscall(GETI, &val) == ERR)
+    if (syscall(GETI, (char*)&val) == ERR)
         return ERR;
     else
         return val;
@@ -36,6 +38,8 @@ int geti() {
 int gets(char* buff) {
     if (buff == NULL)
         return -1;
+    
+    return syscall(GETS, buff);
 }
 
 int halt() {

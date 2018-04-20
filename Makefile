@@ -1,8 +1,14 @@
 SOURCES = $(wildcard *.c)
 SLASMS  = $(SOURCES:.c=.sl)
+DEBUG   = -dbg
 
-all: $(SLASMS)
-	slasm -dbg $^
+all: kernel user
+
+kernel: kernel.sl
+	slasm $(DEBUG) $^
+
+user: user.sl libc.sl
+	slasm $(DEBUG) $^
 
 %.sl: %.c
 	stacklc -dbg -c $^
