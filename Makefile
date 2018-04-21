@@ -12,3 +12,7 @@ user: user.sl libc.sl
 
 %.sl: %.c
 	stacklc -dbg -c $^
+
+.PHONY: clean
+clean:
+	rm *.sl *.slb *.ast *.dbg
