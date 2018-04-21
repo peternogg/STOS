@@ -12,6 +12,8 @@ typedef struct {
     int param2;
 } InpArg;
 
+void* userMemory;
+
 void startup() {
     InpArg io_blk;
 
@@ -19,9 +21,9 @@ void startup() {
     int high_mem;
     int *stack_size;
 
-    // Set the BP leaving enough room for our stack
-    bp = asm2("PUSHREG", SP_REG);
-    bp += 64;
+    // Set the BP leaving enough room for our stack (64 bytes)
+    bp = asm2("PUSHREG", SP_REG); 
+    bp += 64; 
     asm2("POPREG", BP_REG, bp);
 
     // Load user.slb into memory
@@ -34,8 +36,9 @@ void startup() {
     }
 
     // Set the LP leaving 1000 bytes of stack space
-    stack_size = io_blk.param2;
-    high_mem = io_blk.param2 + *stack_size;
+    stack_size = io_blk.param2; // &(first free word)
+    userMemory = stack_size; // Save the address after the user program
+    high_mem = io_blk.param2 + *stack_size; // Stack is at the first free word
     asm2("POPREG", LP_REG, high_mem);
 
     // Set SP and FP
@@ -50,42 +53,67 @@ void startup() {
     asm("HALT");
 }
 
-static int validate_args(int call, char* argument) {
-
-}
-
-static int trap_handler(int call, char* argument) {
+static void trap_handler(SyscallArg_t* argument) {
     InpArg inpArg;
+    // Adjust the argument pointer
+    int base;
+    int limit;
+    int call;
+    base = asm2("PUSHREG", BP_REG);
+    limit = asm2("PUSHREG", LP_REG);
+
+    argument = (SyscallArg_t*)((char*)argument + base);
+    // Check the user's arguments
+    // If it's outside their memory range, or the pointer inside it is outside
+    // the range, then stop
+    if (argument < userMemory || argument > limit)
+        return;
+
+    argument->status = OK;
+    argument->argument += base;
+    // Don't let the user pass something outside their memory
+    if (argument->argument < base || argument->argument > limit)  {
+        argument->status = BAD_POINTER;
+        return;
+    }
+
     inpArg.op = 0;
     inpArg.param1 = 0;
     inpArg.param2 = 0;
+    call = argument->whichCall;
 
-    // Adjust the user mode pointer
-    int base;
-    base = asm2("PUSHREG", BP_REG);
-    argument += base;
-
-    if (!validate_args(call, argument))
-        return -1;
 
     if (call == HALT) {
         asm("HALT");
     } else if (call == PRINTS) {
-        asm("OUTS", argument);
+        asm("OUTS", argument->argument);
     } else if (call == GETS) {
+        // Don't let the user write over their program
+        if (argument->argument < userMemory) {
+            argument->status = BAD_POINTER;
+            return;
+        }
+        
         inpArg.op = GETS_CALL;
-        inpArg.param1 = argument;
+        inpArg.param1 = argument->argument;
         asm("INP", &inpArg);
         while(inpArg.op >= 0) {}
     } else if (call == GETI) {
+        // Don't let the user write over their program
+        if (argument->argument < userMemory) {
+            asm("OUTS", "GETI argument was bad");
+            argument->status = BAD_POINTER;
+            return;
+        }
+
         inpArg.op = GETI_CALL;
-        inpArg.param1 = argument;
+        inpArg.param1 = argument->argument;
         asm("INP", &inpArg);
         while(inpArg.op >= 0) {}
     }
 }
-
-int systrap(int call, char* argument) {
-    trap_handler(call, argument);
+ 
+void systrap(SyscallArg_t* argument) {
+    trap_handler(argument);
     asm("RTI");
 }

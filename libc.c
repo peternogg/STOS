@@ -1,47 +1,88 @@
 #include "libc.h"
 
-static int syscall(int call, char* argument) {
-    int status = 0;
-
-    if (call == HALT) {
+static int syscall(SyscallArg_t* argument) {
+    if (argument->whichCall == HALT) {
         if (argument != NULL)
             return ERR;
-    } else if (call == PRINTS || call == GETI || call == GETS) {
+    } else if (argument->whichCall == PRINTS 
+        || argument->whichCall == GETI 
+        || argument->whichCall == GETS) {
         if (argument == NULL)
             return ERR;
     }
 
     asm("TRAP"); 
-    return 0;
+    return argument->status;
 }
 
 int prints(char* string) {
-    syscall(PRINTS, string);
+    SyscallArg_t arg;
+    arg.whichCall = PRINTS;
+    arg.argument = string;
+    
+    syscall(&arg);
+
+    if (arg.status != OK)
+        return ERR;
+
+    return 0;
 }
 
 int printi(int value) {
     char buff[14]; // 10 digits + commas + null terminator
+    SyscallArg_t arg;
     itostr(value, buff);
 
-    return syscall(PRINTS, buff);
+    arg.whichCall = PRINTS;
+    arg.argument = buff;
+    
+    syscall(&arg);
+
+    if (arg.status != OK)
+        return ERR;
+
+    return 0;
 }
 
 int geti() {
     int val = -1;
+    SyscallArg_t arg;
+    arg.whichCall = GETI;
+    arg.argument = (char*)&val;
 
-    if (syscall(GETI, (char*)&val) == ERR)
-        return ERR;
-    else
-        return val;
+    syscall(&arg);
+
+    if (arg.status != OK)
+        return -1;
+
+    return val;
 }
 
 int gets(char* buff) {
+    SyscallArg_t arg;
     if (buff == NULL)
         return -1;
     
-    return syscall(GETS, buff);
+    arg.whichCall = GETS;
+    arg.argument = buff;
+
+    syscall(&arg);
+
+    if (arg.status != OK)
+        return -1;
+
+    return 0;
 }
 
 int halt() {
-    syscall(HALT, NULL);
+    SyscallArg_t arg;
+    arg.whichCall = HALT;
+    arg.argument = NULL;
+
+    syscall(&arg);
+
+    if (arg.status != OK)
+        return -1;
+    
+    return 0;
 }
