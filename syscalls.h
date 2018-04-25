@@ -1,3 +1,5 @@
+#pragma once
+
 #define PRINTS 0
 #define GETI   1
 #define GETS   2

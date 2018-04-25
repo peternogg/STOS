@@ -93,7 +93,7 @@ static void trap_handler(SyscallArg_t* argument) {
             return;
         }
         
-        inpArg->op = GETS_CALL;
+        inpArg->op = GETL_CALL;
         inpArg->param1 = argument->argument;
         inpArg->param2 = 0;
 
