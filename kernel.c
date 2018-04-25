@@ -1,5 +1,6 @@
 #include <machine_def.h>
 #include <syscodes.h>
+#include <string.h>
 #include "syscalls.h"
 
 #pragma feature inp
@@ -74,11 +75,16 @@ static void trap_handler(SyscallArg_t* argument) {
 
     call = argument->whichCall;
 
-
     if (call == HALT) {
         asm("HALT");
     } else if (call == PRINTS) {
         // Don't allow the user to write outside their area
+        int len = strlen(argument->argument);
+        if ((int)(argument->argument + len) > limit) {
+            argument->status = BAD_POINTER;
+            return;
+        }
+
         asm("OUTS", argument->argument);
     } else if (call == GETS) {
         // Don't let the user write over their program
