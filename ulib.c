@@ -54,7 +54,7 @@ int printi(int value) {
 }
 
 int geti() {
-    int val = -1;
+    int val = 0;
     SyscallArg_t arg;
     arg.whichCall = GETI;
     arg.argument = (char*)&val;
