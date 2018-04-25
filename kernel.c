@@ -86,13 +86,7 @@ static void trap_handler(SyscallArg_t* argument) {
         }
 
         asm("OUTS", argument->argument);
-    } else if (call == GETS) {
-        // Don't let the user write over their program
-        if (argument->argument < userMemory) {
-            argument->status = INVALID_ARGUMENT;
-            return;
-        }
-        
+    } else if (call == GETS) {        
         inpArg->op = GETL_CALL;
         inpArg->param1 = argument->argument;
         inpArg->param2 = 0;
@@ -100,12 +94,6 @@ static void trap_handler(SyscallArg_t* argument) {
         argument->status = RESULT_PENDING;
         asm("INP", inpArg);
     } else if (call == GETI) {
-        // Don't let the user write over their program
-        if (argument->argument < userMemory) {
-            argument->status = INVALID_ARGUMENT;
-            return;
-        }
-
         inpArg->op = GETI_CALL;
         inpArg->param1 = argument->argument;
         inpArg->param2 = 0;
