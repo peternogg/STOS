@@ -61,7 +61,7 @@ static void trap_handler(SyscallArg_t* argument) {
     // Check the user's arguments
     // If it's outside their memory range, or the pointer inside it is outside
     // the range, then stop
-    if (argument < userMemory || argument > limit)
+    if (argument < base || argument > limit)
         return;
 
     argument->status = OK;
@@ -89,7 +89,7 @@ static void trap_handler(SyscallArg_t* argument) {
     } else if (call == GETS) {
         // Don't let the user write over their program
         if (argument->argument < userMemory) {
-            argument->status = BAD_POINTER;
+            argument->status = INVALID_ARGUMENT;
             return;
         }
         
@@ -102,7 +102,7 @@ static void trap_handler(SyscallArg_t* argument) {
     } else if (call == GETI) {
         // Don't let the user write over their program
         if (argument->argument < userMemory) {
-            argument->status = BAD_POINTER;
+            argument->status = INVALID_ARGUMENT;
             return;
         }
 
@@ -112,6 +112,8 @@ static void trap_handler(SyscallArg_t* argument) {
 
         argument->status = RESULT_PENDING;
         asm("INP", inpArg);
+    } else {
+        argument->status = NO_SUCH_CALL;
     }
 }
  
