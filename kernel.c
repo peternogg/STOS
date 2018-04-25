@@ -6,12 +6,6 @@
 #pragma startup startup
 #pragma systrap systrap
 
-typedef struct {
-    int op;
-    char* param1;
-    int param2;
-} InpArg;
-
 void* userMemory;
 
 void startup() {
@@ -23,7 +17,7 @@ void startup() {
 
     // Set the BP leaving enough room for our stack (64 bytes)
     bp = asm2("PUSHREG", SP_REG); 
-    bp += 64; 
+    bp += 64 + 256; 
     asm2("POPREG", BP_REG, bp);
 
     // Load user.slb into memory
@@ -54,7 +48,7 @@ void startup() {
 }
 
 static void trap_handler(SyscallArg_t* argument) {
-    InpArg inpArg;
+    InpArg* inpArg;
     // Adjust the argument pointer
     int base;
     int limit;
@@ -71,21 +65,20 @@ static void trap_handler(SyscallArg_t* argument) {
 
     argument->status = OK;
     argument->argument += base;
+    inpArg = &argument->io;
     // Don't let the user pass something outside their memory
     if (argument->argument < base || argument->argument > limit)  {
         argument->status = BAD_POINTER;
         return;
     }
 
-    inpArg.op = 0;
-    inpArg.param1 = 0;
-    inpArg.param2 = 0;
     call = argument->whichCall;
 
 
     if (call == HALT) {
         asm("HALT");
     } else if (call == PRINTS) {
+        // Don't allow the user to write outside their area
         asm("OUTS", argument->argument);
     } else if (call == GETS) {
         // Don't let the user write over their program
@@ -94,22 +87,25 @@ static void trap_handler(SyscallArg_t* argument) {
             return;
         }
         
-        inpArg.op = GETS_CALL;
-        inpArg.param1 = argument->argument;
-        asm("INP", &inpArg);
-        while(inpArg.op >= 0) {}
+        inpArg->op = GETS_CALL;
+        inpArg->param1 = argument->argument;
+        inpArg->param2 = 0;
+
+        argument->status = RESULT_PENDING;
+        asm("INP", inpArg);
     } else if (call == GETI) {
         // Don't let the user write over their program
         if (argument->argument < userMemory) {
-            asm("OUTS", "GETI argument was bad");
             argument->status = BAD_POINTER;
             return;
         }
 
-        inpArg.op = GETI_CALL;
-        inpArg.param1 = argument->argument;
-        asm("INP", &inpArg);
-        while(inpArg.op >= 0) {}
+        inpArg->op = GETI_CALL;
+        inpArg->param1 = argument->argument;
+        inpArg->param2 = 0;
+
+        argument->status = RESULT_PENDING;
+        asm("INP", inpArg);
     }
 }
  

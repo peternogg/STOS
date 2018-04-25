@@ -2,16 +2,25 @@
 
 static int syscall(SyscallArg_t* argument) {
     if (argument->whichCall == HALT) {
-        if (argument != NULL)
+        if (argument->argument != NULL)
             return ERR;
     } else if (argument->whichCall == PRINTS 
         || argument->whichCall == GETI 
         || argument->whichCall == GETS) {
-        if (argument == NULL)
+        if (argument->argument == NULL)
             return ERR;
     }
 
-    asm("TRAP"); 
+    asm("TRAP");
+
+    if (argument->status == RESULT_PENDING) {
+        // Wait on the result
+        while(argument->io.op >= 0) 
+        {}
+
+        argument->status = OK; 
+    }
+    
     return argument->status;
 }
 
