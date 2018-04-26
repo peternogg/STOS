@@ -1,18 +1,16 @@
-SOURCES = $(wildcard *.c)
-SLASMS  = $(SOURCES:.c=.sl)
 DEBUG   = -dbg
 
 all: kernel user
 
 kernel: kernel.sl
-	slasm $(DEBUG) $^
+	slasm $(DEBUG) kernel.sl
 
-user: user.sl libc.sl
-	slasm $(DEBUG) $^
+user: user.sl ulib.sl
+	slasm $(DEBUG) user.sl ulib.sl
 
 %.sl: %.c
-	stacklc -dbg -c $^
+	stacklc $(DEBUG) -c $^
 
 .PHONY: clean
 clean:
-	rm *.sl *.slb *.ast *.dbg
+	-rm -f *.sl *.slb *.ast *.dbg

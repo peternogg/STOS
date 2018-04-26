@@ -7,8 +7,6 @@
 #pragma startup startup
 #pragma systrap systrap
 
-void* userMemory;
-
 void startup() {
     InpArg io_blk;
 
@@ -18,7 +16,7 @@ void startup() {
 
     // Set the BP leaving enough room for our stack (64 bytes)
     bp = asm2("PUSHREG", SP_REG); 
-    bp += 64 + 256; 
+    bp += 64; 
     asm2("POPREG", BP_REG, bp);
 
     // Load user.slb into memory
@@ -31,9 +29,8 @@ void startup() {
     }
 
     // Set the LP leaving 1000 bytes of stack space
-    stack_size = io_blk.param2; // &(first free word)
-    userMemory = stack_size; // Save the address after the user program
-    high_mem = io_blk.param2 + *stack_size; // Stack is at the first free word
+    stack_size = io_blk.param2;
+    high_mem = io_blk.param2 + *stack_size;
     asm2("POPREG", LP_REG, high_mem);
 
     // Set SP and FP
@@ -61,14 +58,14 @@ static void trap_handler(SyscallArg_t* argument) {
     // Check the user's arguments
     // If it's outside their memory range, or the pointer inside it is outside
     // the range, then stop
-    if (argument < base || argument > limit)
+    if (argument > limit)
         return;
 
     argument->status = OK;
     argument->argument += base;
     inpArg = &argument->io;
     // Don't let the user pass something outside their memory
-    if (argument->argument < base || argument->argument > limit)  {
+    if (argument->argument > limit)  {
         argument->status = BAD_POINTER;
         return;
     }
@@ -78,15 +75,22 @@ static void trap_handler(SyscallArg_t* argument) {
     if (call == HALT) {
         asm("HALT");
     } else if (call == PRINTS) {
-        // Don't allow the user to write outside their area
-        int len = strlen(argument->argument);
+        // The end of the string must be inside the user's memory area
+        // string bytes plus null terminator
+        int len = strlen(argument->argument) + 1;
         if ((int)(argument->argument + len) > limit) {
             argument->status = BAD_POINTER;
             return;
         }
 
         asm("OUTS", argument->argument);
-    } else if (call == GETS) {        
+    } else if (call == GETS) {
+        // There must be 256 bytes between argument and limit
+        if (argument->argument - limit < 256) {
+            argument->status = BAD_POINTER;
+            return;
+        }
+
         inpArg->op = GETL_CALL;
         inpArg->param1 = argument->argument;
         inpArg->param2 = 0;
@@ -94,6 +98,12 @@ static void trap_handler(SyscallArg_t* argument) {
         argument->status = RESULT_PENDING;
         asm("INP", inpArg);
     } else if (call == GETI) {
+        // There must be at least an int worth of space
+        if (argument->argument - limit < sizeof(int)) {
+            argument->status = BAD_POINTER;
+            return;
+        }
+
         inpArg->op = GETI_CALL;
         inpArg->param1 = argument->argument;
         inpArg->param2 = 0;

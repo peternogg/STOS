@@ -34,7 +34,7 @@ int prints(char* string) {
     if (arg.status != OK)
         return ERR;
 
-    return 0;
+    return OK;
 }
 
 int printi(int value) {
@@ -50,7 +50,7 @@ int printi(int value) {
     if (arg.status != OK)
         return ERR;
 
-    return 0;
+    return OK;
 }
 
 int geti() {
@@ -62,15 +62,13 @@ int geti() {
     syscall(&arg);
 
     if (arg.status != OK)
-        return -1;
+        return ERR;
 
     return val;
 }
 
 int gets(char* buff) {
     SyscallArg_t arg;
-    if (buff == NULL)
-        return -1;
     
     arg.whichCall = GETS;
     arg.argument = buff;
@@ -78,9 +76,9 @@ int gets(char* buff) {
     syscall(&arg);
 
     if (arg.status != OK)
-        return -1;
+        return ERR;
 
-    return 0;
+    return OK;
 }
 
 int halt() {
@@ -91,7 +89,7 @@ int halt() {
     syscall(&arg);
 
     if (arg.status != OK)
-        return -1;
+        return ERR;
     
-    return 0;
+    return OK;
 }

@@ -1,20 +1,13 @@
 #include "ulib.h"
 
 int main() {
-    char buffer[30];
-    int age;
-    if (prints("Hello! What's your name? ") == -1) {
-        prints("Uh oh! Error in printing.\n");
+    char* ptr = 0;
+    if (prints(ptr) == ERR) {
+        prints("Failed to print ptr = 0\n");
     }
-    
-    gets(buffer);
 
-    prints("Hello ");
-    prints(buffer);
-    prints("!\nAnd how old are you?");
-    age = geti();
-    prints("Cool! You're ");
-    printi(age);
-    prints(".\n");
-    halt();    
+    ptr++;
+    if (prints(ptr) == ERR) {
+        prints("Failed to print ptr = 1\n");
+    }
 }
