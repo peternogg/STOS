@@ -1,5 +1,5 @@
 /************************
- * Peter Higginbotham 
+ * Author: Peter Higginbotham 
  * External definitions for calling into the OS
  */
 

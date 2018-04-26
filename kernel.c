@@ -1,5 +1,5 @@
 /**********************************************
- * Peter Higginbotham
+ * Author: Peter Higginbotham
  * The source code a (cool, brand new) OS for the Stackl Interpreter
  */
 #include <machine_def.h>

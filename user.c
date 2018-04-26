@@ -1,5 +1,5 @@
 /************************
- * Peter Higginbotham 
+ * Author: Peter Higginbotham 
  * This file contains the user program to test both the kernel and ulib library.
  */
 

@@ -1,5 +1,5 @@
 /**********************************************
- * Peter Higginbotham
+ * Author: Peter Higginbotham
  * The source code for the ulib user library, which interfaces with the OS
  */
 #include "ulib.h"

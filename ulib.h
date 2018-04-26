@@ -1,3 +1,8 @@
+/************************
+ * Author: Peter Higginbotham 
+ * This file contains the external exports for ulib.c
+ */
+
 #pragma once
 
 #include <machine_def.h>
