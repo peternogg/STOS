@@ -1,5 +1,11 @@
+/**********************************************
+ * Peter Higginbotham
+ * The source code for the ulib user library, which interfaces with the OS
+ */
 #include "ulib.h"
 
+/******************************************************************************/
+// Thread Safety: Safe if argument is not shared between threads
 static int syscall(SyscallArg_t* argument) {
     if (argument->whichCall == HALT) {
         if (argument->argument != NULL)
@@ -9,6 +15,9 @@ static int syscall(SyscallArg_t* argument) {
         || argument->whichCall == GETS) {
         if (argument->argument == NULL)
             return ERR;
+    } else {
+        // Invalid call
+        return ERR;
     }
 
     asm("TRAP");
@@ -24,6 +33,8 @@ static int syscall(SyscallArg_t* argument) {
     return argument->status;
 }
 
+/******************************************************************************/
+// Thread Safety: Safe if argument is not shared between threads
 int prints(char* string) {
     SyscallArg_t arg;
     arg.whichCall = PRINTS;
@@ -37,22 +48,18 @@ int prints(char* string) {
     return OK;
 }
 
+/******************************************************************************/
+// Thread Safety: Safe
 int printi(int value) {
-    char buff[14]; // 10 digits + commas + null terminator
+    char buff[20];
     SyscallArg_t arg;
     itostr(value, buff);
 
-    arg.whichCall = PRINTS;
-    arg.argument = buff;
-    
-    syscall(&arg);
-
-    if (arg.status != OK)
-        return ERR;
-
-    return OK;
+    return prints(buff);
 }
 
+/******************************************************************************/
+// Thread Safety: Safe
 int geti() {
     int val = 0;
     SyscallArg_t arg;
@@ -67,6 +74,8 @@ int geti() {
     return val;
 }
 
+/******************************************************************************/
+// Thread Safety: Safe if argument is not shared between threads
 int gets(char* buff) {
     SyscallArg_t arg;
     
@@ -81,6 +90,8 @@ int gets(char* buff) {
     return OK;
 }
 
+/******************************************************************************/
+// Thread Safety: Unsafe
 int halt() {
     SyscallArg_t arg;
     arg.whichCall = HALT;

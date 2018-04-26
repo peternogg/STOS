@@ -1,3 +1,7 @@
+/**********************************************
+ * Peter Higginbotham
+ * The source code a (cool, brand new) OS for the Stackl Interpreter
+ */
 #include <machine_def.h>
 #include <syscodes.h>
 #include <string.h>
@@ -7,6 +11,8 @@
 #pragma startup startup
 #pragma systrap systrap
 
+/******************************************************************************/
+// Thread Safety: None
 void startup() {
     InpArg io_blk;
 
@@ -45,6 +51,21 @@ void startup() {
     asm("HALT");
 }
 
+/******************************************************************************/
+// Thread Safety: Safe as long as string is not modified during execution
+static int stringUnderLimit(char* string, char* limit) {
+    while(*string && (int)string < (int)limit)
+        string++;
+
+    if (*string == 0)
+        return 0;
+    else
+        return 1;
+}
+
+
+/******************************************************************************/
+// Thread Safety: Safe if BP, LP, and *argument are not changed during execution
 static void trap_handler(SyscallArg_t* argument) {
     InpArg* inpArg;
     // Adjust the argument pointer
@@ -75,18 +96,16 @@ static void trap_handler(SyscallArg_t* argument) {
     if (call == HALT) {
         asm("HALT");
     } else if (call == PRINTS) {
-        // The end of the string must be inside the user's memory area
-        // string bytes plus null terminator
-        int len = strlen(argument->argument) + 1;
-        if ((int)(argument->argument + len) > limit) {
-            argument->status = BAD_POINTER;
+        // Make sure there's a null pointer before LP
+        if (stringUnderLimit(argument->argument, limit) == 1) {
+            argument->status = INVALID_ARGUMENT;
             return;
         }
 
         asm("OUTS", argument->argument);
     } else if (call == GETS) {
         // There must be 256 bytes between argument and limit
-        if (argument->argument - limit < 256) {
+        if (argument->argument + 256 >= limit) {
             argument->status = BAD_POINTER;
             return;
         }
@@ -99,7 +118,7 @@ static void trap_handler(SyscallArg_t* argument) {
         asm("INP", inpArg);
     } else if (call == GETI) {
         // There must be at least an int worth of space
-        if (argument->argument - limit < sizeof(int)) {
+        if (argument->argument + sizeof(int) >= limit) {
             argument->status = BAD_POINTER;
             return;
         }
@@ -114,7 +133,9 @@ static void trap_handler(SyscallArg_t* argument) {
         argument->status = NO_SUCH_CALL;
     }
 }
- 
+
+/******************************************************************************/
+// Thread Safety: Safe
 void systrap(SyscallArg_t* argument) {
     trap_handler(argument);
     asm("RTI");
