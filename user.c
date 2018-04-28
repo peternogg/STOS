@@ -157,11 +157,11 @@ int main() {
 
     checkPrintingFromGlobalSucceeds();
     checkReadingIntoAGlobalBufferSucceeds();
-    checkReadingIntoAPointerTooCloseToLPFails();
+    //checkReadingIntoAPointerTooCloseToLPFails();
     checkReadingIntWorks();
     checkPrintingIntegersWorks();
-    checkPrintingPastLPFails();
+    //checkPrintingPastLPFails();
     checkPrintingNULLFails();
     checkPrintingFromRightUnderStringLimitSucceeds();
-    checkPrintingAndBeyondLPFails();
+    //checkPrintingAndBeyondLPFails();
 }

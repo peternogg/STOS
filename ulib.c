@@ -7,13 +7,12 @@
 /******************************************************************************/
 // Thread Safety: Safe if argument is not shared between threads
 static int syscall(SyscallArg_t* argument) {
-    if (argument->whichCall == HALT) {
-        if (argument->argument != NULL)
+    if (argument->call == HALT) {
+        if (argument->buffer != NULL)
             return ERR;
-    } else if (argument->whichCall == PRINTS 
-        || argument->whichCall == GETI 
-        || argument->whichCall == GETS) {
-        if (argument->argument == NULL)
+    } else if (argument->call == PRINTS || argument->call == GETI 
+            || argument->call == GETS) {
+        if (argument->buffer == NULL || argument->size == 0)
             return ERR;
     } else {
         // Invalid call
@@ -23,11 +22,11 @@ static int syscall(SyscallArg_t* argument) {
     asm("TRAP");
 
     if (argument->status == RESULT_PENDING) {
-        // Wait on the result
-        while(argument->io.op >= 0) 
+        // Wait on the result - either argument->call or argument->status
+        while(argument->call >= 0 && argument->status == RESULT_PENDING) 
         {}
 
-        argument->status = OK; 
+        argument->status = OK;
     }
     
     return argument->status;
@@ -36,9 +35,13 @@ static int syscall(SyscallArg_t* argument) {
 /******************************************************************************/
 // Thread Safety: Safe if argument is not shared between threads
 int prints(char* string) {
+    if (string == NULL)
+        return ERR;
+        
     SyscallArg_t arg;
-    arg.whichCall = PRINTS;
-    arg.argument = string;
+    arg.call = PRINTS;
+    arg.buffer = string;
+    arg.size = strlen(string) + 1;
     
     syscall(&arg);
 
@@ -63,8 +66,9 @@ int printi(int value) {
 int geti() {
     int val = 0;
     SyscallArg_t arg;
-    arg.whichCall = GETI;
-    arg.argument = (char*)&val;
+    arg.call = GETI;
+    arg.buffer = (char*)&val;
+    arg.size = sizeof(int);
 
     syscall(&arg);
 
@@ -79,8 +83,9 @@ int geti() {
 int gets(char* buff) {
     SyscallArg_t arg;
     
-    arg.whichCall = GETS;
-    arg.argument = buff;
+    arg.call = GETS;
+    arg.buffer = buff;
+    arg.size = 256;
 
     syscall(&arg);
 
@@ -94,8 +99,9 @@ int gets(char* buff) {
 // Thread Safety: Unsafe
 int halt() {
     SyscallArg_t arg;
-    arg.whichCall = HALT;
-    arg.argument = NULL;
+    arg.call = HALT;
+    arg.buffer = NULL;
+    arg.size = 0;
 
     syscall(&arg);
 

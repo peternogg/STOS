@@ -5,11 +5,23 @@
 #include <machine_def.h>
 #include <syscodes.h>
 #include <string.h>
+#include <pio_term.h>
 #include "syscalls.h"
 
 #pragma feature inp
+#pragma feature pio_term
 #pragma startup startup
 #pragma systrap systrap
+#pragma interrupt ISR
+
+// IO Operation block
+typedef struct {
+    int op;
+    char* param1;
+    int param2;
+} InpArg;
+
+SyscallArg_t* g_currentString;
 
 /******************************************************************************/
 // Thread Safety: None
@@ -53,25 +65,17 @@ void startup() {
 
 /******************************************************************************/
 // Thread Safety: Safe as long as string is not modified during execution
-static int stringUnderLimit(char* string, char* limit) {
-    while(*string && (int)string < (int)limit)
-        string++;
-
-    if (*string == 0)
-        return 0;
-    else
-        return 1;
+static int stringUnderLimit(char* string, int length, char* limit) {
+    // Length includes null character, so -1 for that and -1 for array indexing
+    return ((string + length) < limit && string[length - 2] == 0);
 }
-
 
 /******************************************************************************/
 // Thread Safety: Safe if BP, LP, and *argument are not changed during execution
 static void trap_handler(SyscallArg_t* argument) {
-    InpArg* inpArg;
     // Adjust the argument pointer
     int base;
     int limit;
-    int call;
     base = asm2("PUSHREG", BP_REG);
     limit = asm2("PUSHREG", LP_REG);
 
@@ -83,52 +87,48 @@ static void trap_handler(SyscallArg_t* argument) {
         return;
 
     argument->status = OK;
-    argument->argument += base;
-    inpArg = &argument->io;
+    argument->buffer += base;
     // Don't let the user pass something outside their memory
-    if (argument->argument > limit)  {
+    if (argument->buffer > limit)  {
         argument->status = BAD_POINTER;
         return;
     }
 
-    call = argument->whichCall;
-
-    if (call == HALT) {
+    if (argument->call == HALT) {
         asm("HALT");
-    } else if (call == PRINTS) {
+    } else if (argument->call == PRINTS) {
         // Make sure there's a null pointer before LP
-        if (stringUnderLimit(argument->argument, limit) == 1) {
+        if (stringUnderLimit(argument->buffer, argument->size, limit)) {
             argument->status = INVALID_ARGUMENT;
             return;
         }
 
-        asm("OUTS", argument->argument);
-    } else if (call == GETS) {
+        //argument->status = RESULT_PENDING;
+        asm("OUTS", argument->buffer);
+        //*((int*)PIO_T_IE_XMIT) = *(argument->buffer);
+    } else if (argument->call == GETS) {
         // There must be 256 bytes between argument and limit
-        if (argument->argument + 256 >= limit) {
+        if (argument->buffer + 256 >= limit) {
             argument->status = BAD_POINTER;
             return;
         }
 
-        inpArg->op = GETL_CALL;
-        inpArg->param1 = argument->argument;
-        inpArg->param2 = 0;
-
+        argument->call = GETL_CALL;
+        argument->size = 0;
         argument->status = RESULT_PENDING;
-        asm("INP", inpArg);
-    } else if (call == GETI) {
+        asm("INP", argument);
+    } else if (argument->call == GETI) {
         // There must be at least an int worth of space
-        if (argument->argument + sizeof(int) >= limit) {
+        if (argument->buffer + sizeof(int) >= limit) {
             argument->status = BAD_POINTER;
             return;
         }
 
-        inpArg->op = GETI_CALL;
-        inpArg->param1 = argument->argument;
-        inpArg->param2 = 0;
+        argument->call = GETI_CALL;
+        argument->size = 0;
 
         argument->status = RESULT_PENDING;
-        asm("INP", inpArg);
+        asm("INP", argument); // Reuse argument as IO block
     } else {
         argument->status = NO_SUCH_CALL;
     }
@@ -138,5 +138,9 @@ static void trap_handler(SyscallArg_t* argument) {
 // Thread Safety: Safe
 void systrap(SyscallArg_t* argument) {
     trap_handler(argument);
+    asm("RTI");
+}
+
+void ISR() {
     asm("RTI");
 }
