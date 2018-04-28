@@ -21,7 +21,9 @@ typedef struct {
     int param2;
 } InpArg;
 
-SyscallArg_t* g_currentString;
+char* g_currentString;
+int g_currentStringLength;
+int* g_finished;
 
 /******************************************************************************/
 // Thread Safety: None
@@ -97,15 +99,28 @@ static void trap_handler(SyscallArg_t* argument) {
     if (argument->call == HALT) {
         asm("HALT");
     } else if (argument->call == PRINTS) {
+        // Make sure the user didn't send us an empty buffer
+        if (argument->size == 0) {
+            argument->status = INVALID_ARGUMENT;
+            return;
+        }
         // Make sure there's a null pointer before LP
         if (stringUnderLimit(argument->buffer, argument->size, limit)) {
             argument->status = INVALID_ARGUMENT;
             return;
         }
+        // Start the output stage
+        argument->status = RESULT_PENDING;
 
-        //argument->status = RESULT_PENDING;
-        asm("OUTS", argument->buffer);
-        //*((int*)PIO_T_IE_XMIT) = *(argument->buffer);
+        g_currentString = argument->buffer;
+        g_currentStringLength = argument->size;
+        g_finished = &argument->status;
+
+        *((char*)PIO_T_IER) |= PIO_T_IE_XMIT;
+        *((char*)PIO_T_XDR) = *argument->buffer;
+
+        g_currentString++;
+        g_currentStringLength--;
     } else if (argument->call == GETS) {
         // There must be 256 bytes between argument and limit
         if (argument->buffer + 256 >= limit) {
@@ -142,5 +157,17 @@ void systrap(SyscallArg_t* argument) {
 }
 
 void ISR() {
+    if (g_currentStringLength > 0) {
+        *((char*)PIO_T_XDR) = *g_currentString;
+
+        g_currentStringLength--;
+        g_currentString++;
+    } else {
+        g_currentString = 0;
+        g_currentStringLength = 0;
+        *g_finished = DONE;
+        g_finished = 0;
+        *((char*)PIO_T_IER) &= ~PIO_T_IE_XMIT;
+    }
     asm("RTI");
 }

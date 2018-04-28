@@ -156,12 +156,12 @@ int main() {
     globalString = "This is the global string!\n";
 
     checkPrintingFromGlobalSucceeds();
-    checkReadingIntoAGlobalBufferSucceeds();
+    //checkReadingIntoAGlobalBufferSucceeds();
     //checkReadingIntoAPointerTooCloseToLPFails();
-    checkReadingIntWorks();
+    //checkReadingIntWorks();
     checkPrintingIntegersWorks();
     //checkPrintingPastLPFails();
-    checkPrintingNULLFails();
+    //checkPrintingNULLFails();
     checkPrintingFromRightUnderStringLimitSucceeds();
     //checkPrintingAndBeyondLPFails();
 }
