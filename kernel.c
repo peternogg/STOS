@@ -25,6 +25,13 @@ char* g_currentString;
 int g_currentStringLength;
 int* g_finished;
 
+static void printString(SyscallArg_t* argument, int limit);
+static void getString(SyscallArg_t* argument, int limit);
+static void getInteger(SyscallArg_t* argument, int limit);
+static void trap_handler(SyscallArg_t* argument);
+void systrap(SyscallArg_t* argument);
+void ISR();
+
 /******************************************************************************/
 // Thread Safety: None
 void startup() {
@@ -66,6 +73,31 @@ void startup() {
 }
 
 /******************************************************************************/
+// Thread Safety: Safe
+void systrap(SyscallArg_t* argument) {
+    trap_handler(argument);
+    asm("RTI");
+}
+
+/******************************************************************************/
+// Thread Safety: None - uses globals
+void ISR() {
+    if (g_currentStringLength > 0) {
+        *((char*)PIO_T_XDR) = *g_currentString;
+
+        g_currentStringLength--;
+        g_currentString++;
+    } else {
+        g_currentString = 0;
+        g_currentStringLength = 0;
+        *g_finished = DONE; // Signal to the user
+        g_finished = 0;
+        *((char*)PIO_T_IER) &= ~PIO_T_IE_XMIT;
+    }
+    asm("RTI");
+}
+
+/******************************************************************************/
 // Thread Safety: Safe as long as string is not modified during execution
 static int stringIsInvalid(char* string, int length, char* limit) {
     // Length includes null character, so -1 for that and -1 for array indexing
@@ -96,80 +128,65 @@ static void trap_handler(SyscallArg_t* argument) {
         return;
     }
 
-    if (argument->call == HALT) {
+    if (argument->call == HALT)
         asm("HALT");
-    } else if (argument->call == PRINTS) {
-        // Make sure the user didn't send us an empty buffer
-        if (argument->size == 0) {
-            argument->status = INVALID_ARGUMENT;
-            return;
-        }
-        // Make sure there's a null pointer before LP
-        if (stringIsInvalid(argument->buffer, argument->size, limit)) {
-            argument->status = INVALID_ARGUMENT;
-            return;
-        }
-        // Start the output stage
-        argument->status = RESULT_PENDING;
-
-        g_currentString = argument->buffer;
-        g_currentStringLength = argument->size;
-        g_finished = &argument->status;
-
-        *((char*)PIO_T_IER) |= PIO_T_IE_XMIT;
-        *((char*)PIO_T_XDR) = *argument->buffer;
-
-        g_currentString++;
-        g_currentStringLength--;
-    } else if (argument->call == GETS) {
-        // There must be 256 bytes between argument and limit
-        if (argument->buffer + 256 >= limit) {
-            argument->status = BAD_POINTER;
-            return;
-        }
-
-        argument->call = GETL_CALL;
-        argument->size = 0;
-        argument->status = RESULT_PENDING;
-        asm("INP", argument);
-    } else if (argument->call == GETI) {
-        // There must be at least an int worth of space
-        if (argument->buffer + sizeof(int) >= limit) {
-            argument->status = BAD_POINTER;
-            return;
-        }
-
-        argument->call = GETI_CALL;
-        argument->size = 0;
-
-        argument->status = RESULT_PENDING;
-        asm("INP", argument); // Reuse argument as IO block
-    } else {
+    else if (argument->call == PRINTS)
+        printString(argument, limit);
+    else if (argument->call == GETS)
+        getString(argument, limit);
+    else if (argument->call == GETI)
+        getInteger(argument, limit);
+    else
         argument->status = NO_SUCH_CALL;
-    }
 }
 
-/******************************************************************************/
-// Thread Safety: Safe
-void systrap(SyscallArg_t* argument) {
-    trap_handler(argument);
-    asm("RTI");
+static void printString(SyscallArg_t* argument, int limit) {
+    // Make sure the user didn't send us an empty buffer
+    if (argument->size == 0) {
+        argument->status = INVALID_ARGUMENT;
+        return;
+    }
+    // Make sure there's a null pointer before LP
+    if (stringIsInvalid(argument->buffer, argument->size, limit)) {
+        argument->status = INVALID_ARGUMENT;
+        return;
+    }
+    // Start the output stage
+    argument->status = RESULT_PENDING;
+
+    g_currentString = argument->buffer;
+    g_currentStringLength = argument->size;
+    g_finished = &argument->status;
+
+    *((char*)PIO_T_IER) |= PIO_T_IE_XMIT;
+    *((char*)PIO_T_XDR) = *argument->buffer;
+
+    g_currentString++;
+    g_currentStringLength--;
+}
+static void getString(SyscallArg_t* argument, int limit) {
+    // There must be 256 bytes between argument and limit
+    if (argument->buffer + 256 >= limit) {
+        argument->status = BAD_POINTER;
+        return;
+    }
+
+    argument->call = GETL_CALL;
+    argument->size = 0;
+    argument->status = RESULT_PENDING;
+    asm("INP", argument);
 }
 
-/******************************************************************************/
-// Thread Safety: None - uses globals
-void ISR() {
-    if (g_currentStringLength > 0) {
-        *((char*)PIO_T_XDR) = *g_currentString;
-
-        g_currentStringLength--;
-        g_currentString++;
-    } else {
-        g_currentString = 0;
-        g_currentStringLength = 0;
-        *g_finished = DONE; // Signal to the user
-        g_finished = 0;
-        *((char*)PIO_T_IER) &= ~PIO_T_IE_XMIT;
+static void getInteger(SyscallArg_t* argument, int limit) {
+    // There must be at least an int worth of space
+    if (argument->buffer + sizeof(int) >= limit) {
+        argument->status = BAD_POINTER;
+        return;
     }
-    asm("RTI");
+
+    argument->call = GETI_CALL;
+    argument->size = 0;
+
+    argument->status = RESULT_PENDING;
+    asm("INP", argument); // Reuse argument as IO block
 }
