@@ -128,6 +128,14 @@ int gets(char* buff) {
     return OK;
 }
 
+int exit() {
+    halt();
+}
+
+int exec(char* filename) {
+    return prints(filename);
+}
+
 /******************************************************************************/
 // Thread Safety: Unsafe
 int halt() {

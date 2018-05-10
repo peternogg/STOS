@@ -17,3 +17,5 @@ int printi(int value);
 int geti();
 int gets(char* buff);
 int halt();
+int exit();
+int exec(char* filename);
