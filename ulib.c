@@ -26,6 +26,8 @@ static int syscall(SyscallArg_t* argument) {
         while(argument->call >= 0 && argument->status == RESULT_PENDING) 
         {}
 
+        // Check state of argument->call
+
         argument->status = OK;
     }
     
@@ -33,16 +35,48 @@ static int syscall(SyscallArg_t* argument) {
 }
 
 /******************************************************************************/
+// Thread Safety: Safe
+static int safe_strlen(char* string) {
+    int bp;
+    int lp;
+    int maxLength;
+    int length = 0;
+    bp = asm2("PUSHREG", BP_REG);
+    lp = asm2("PUSHREG", LP_REG);
+
+    // The number of bytes between string and lp
+    maxLength = lp - (int)(string + bp);
+
+    while(maxLength > 0 && *string) {
+        length++;
+        string++;
+        maxLength--;
+    }
+
+    if (maxLength <= 0)
+        return -1;
+    else
+        return length;
+}
+
+/******************************************************************************/
 // Thread Safety: Safe if argument is not shared between threads
 int prints(char* string) {
     if (string == NULL)
         return ERR;
-        
+    
     SyscallArg_t arg;
+    int stringLength;
+
     arg.call = PRINTS;
     arg.buffer = string;
-    arg.size = strlen(string) + 1;
     
+    // Make sure that strlen doesn't go outside of memory bounds
+    if ((stringLength = safe_strlen(string)) == -1)
+        return ERR;
+    
+    arg.size = stringLength + 1;
+
     syscall(&arg);
 
     if (arg.status != OK)
@@ -55,7 +89,6 @@ int prints(char* string) {
 // Thread Safety: Safe
 int printi(int value) {
     char buff[20];
-    SyscallArg_t arg;
     itostr(value, buff);
 
     return prints(buff);

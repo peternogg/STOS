@@ -67,9 +67,9 @@ void startup() {
 
 /******************************************************************************/
 // Thread Safety: Safe as long as string is not modified during execution
-static int stringUnderLimit(char* string, int length, char* limit) {
+static int stringIsInvalid(char* string, int length, char* limit) {
     // Length includes null character, so -1 for that and -1 for array indexing
-    return ((string + length) < limit && string[length - 2] == 0);
+    return ((string + length) <= limit && string[length - 2] == 0);
 }
 
 /******************************************************************************/
@@ -105,7 +105,7 @@ static void trap_handler(SyscallArg_t* argument) {
             return;
         }
         // Make sure there's a null pointer before LP
-        if (stringUnderLimit(argument->buffer, argument->size, limit)) {
+        if (stringIsInvalid(argument->buffer, argument->size, limit)) {
             argument->status = INVALID_ARGUMENT;
             return;
         }
@@ -156,6 +156,8 @@ void systrap(SyscallArg_t* argument) {
     asm("RTI");
 }
 
+/******************************************************************************/
+// Thread Safety: None - uses globals
 void ISR() {
     if (g_currentStringLength > 0) {
         *((char*)PIO_T_XDR) = *g_currentString;
@@ -165,7 +167,7 @@ void ISR() {
     } else {
         g_currentString = 0;
         g_currentStringLength = 0;
-        *g_finished = DONE;
+        *g_finished = DONE; // Signal to the user
         g_finished = 0;
         *((char*)PIO_T_IER) &= ~PIO_T_IE_XMIT;
     }

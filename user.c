@@ -2,7 +2,7 @@
  * Author: Peter Higginbotham 
  * This file contains the user program to test both the kernel and ulib library.
  */
-
+#include <machine_def.h>
 #include "ulib.h"
 
 char* globalString;
@@ -27,51 +27,6 @@ void checkPrintingFromGlobalSucceeds() {
 }
 
 /******************************************************************************/
-// Thread Safety: None
-void checkReadingIntoAGlobalBufferSucceeds() {
-    int err;
-    prints("Enter some text: ");
-    err = gets(globalBuffer);
-
-    if (err == ERR)
-        displayMessage("Getting into global buffer FAILED");
-    else {
-        displayMessage("Getting into global buffer succeeded");
-        prints("You entered: ");
-        prints(globalBuffer);
-    }
-}
-
-/******************************************************************************/
-// Thread Safety: Safe as long as printing is threadsafe
-void checkReadingIntoAPointerTooCloseToLPFails() {
-    char* ptr;
-    int bp;
-    bp = asm2("PUSHREG", BP_REG);
-    ptr = asm2("PUSHREG", LP_REG);
-
-    // Put ptr 40 bytes from LP and hope that there's not a null there
-    ptr -= bp;
-    ptr -= 40;
-
-    if (prints(ptr) == ERR)
-        displayMessage("Printing from too close to LP failed (Good)");
-    else
-        displayMessage("Printing from too close to LP SUCCEEDED (Bad)");
-}
-
-/******************************************************************************/
-// Thread Safety: Safe as long as reading and printing are threadsafe
-void checkReadingIntWorks() {
-    prints("Enter an integer: ");
-    int i = geti();
-
-    prints("==> Got the value ");
-    printi(i);
-    prints(".\n");
-}
-
-/******************************************************************************/
 // Thread Safety: Safe as long as printing is threadsafe
 void checkPrintingIntegersWorks() {
     prints("This should print 123\n==> ");
@@ -80,7 +35,7 @@ void checkPrintingIntegersWorks() {
     printi(-1);
     prints("\nThis should print INT_MAX (2147483647)\n==> ");
     printi(0x7FFFFFFF);
-    prints("\nThis should print INT_MIN (-2147483648), but it prints '-'\n==> ");
+    prints("\nThis should print INT_MIN (-2147483648)\n==> ");
     printi(0x7FFFFFFF + 1);
     prints("\n");
 }
@@ -94,7 +49,7 @@ void checkPrintingPastLPFails() {
     bp = asm2("PUSHREG", BP_REG);
 
     ptr -= bp;
-    ptr += 10;
+    ptr += 4;
 
     if (prints(ptr) == ERR)
         displayMessage("Printing past the LP failed (Good)");
@@ -156,12 +111,11 @@ int main() {
     globalString = "This is the global string!\n";
 
     checkPrintingFromGlobalSucceeds();
-    //checkReadingIntoAGlobalBufferSucceeds();
-    //checkReadingIntoAPointerTooCloseToLPFails();
-    //checkReadingIntWorks();
     checkPrintingIntegersWorks();
-    //checkPrintingPastLPFails();
-    //checkPrintingNULLFails();
+    checkPrintingPastLPFails();
+    checkPrintingNULLFails();
     checkPrintingFromRightUnderStringLimitSucceeds();
-    //checkPrintingAndBeyondLPFails();
+    checkPrintingAndBeyondLPFails();
+
+    halt();
 }
