@@ -23,12 +23,15 @@ static int syscall(SyscallArg_t* argument) {
 
     if (argument->status == RESULT_PENDING) {
         // Wait on the result - either argument->call or argument->status
-        while(argument->call >= 0 && argument->status == RESULT_PENDING) 
+        while(argument->call >= 0) 
         {}
 
-        // Check state of argument->call
-
-        argument->status = OK;
+        // Check if there were errors on an async IO action
+        if (argument->call & 0x40000000) {
+            argument->status = ERR;
+        } else {
+            argument->status = OK;
+        }
     }
     
     return argument->status;

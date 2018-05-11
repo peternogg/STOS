@@ -6,13 +6,11 @@
 #include <syscodes.h>
 #include <string.h>
 #include <pio_term.h>
+#include <timer.h>
 #include "syscalls.h"
 
 #pragma feature inp
-#pragma feature pio_term
 #pragma startup startup
-#pragma systrap systrap
-#pragma interrupt ISR
 
 // IO Operation block
 typedef struct {
@@ -21,16 +19,18 @@ typedef struct {
     int param2;
 } InpArg;
 
-char* g_currentString;
-int g_currentStringLength;
-int* g_finished;
+static char* g_currentString;
+static int g_currentStringLength;
+static int* g_finished;
+
+static int g_IVEC[16];
 
 static void printString(SyscallArg_t* argument, int limit);
 static void getString(SyscallArg_t* argument, int limit);
 static void getInteger(SyscallArg_t* argument, int limit);
 static void trap_handler(SyscallArg_t* argument);
-void systrap(SyscallArg_t* argument);
-void ISR();
+static void systrap(SyscallArg_t* argument);
+static void timerInterrupt();
 
 /******************************************************************************/
 // Thread Safety: None
@@ -40,6 +40,14 @@ void startup() {
     int bp;
     int high_mem;
     int *stack_size;
+
+    g_IVEC[1] = (int)systrap;
+    g_IVEC[3] = (int)timerInterrupt;
+    asm2("POPREG", IVEC_REG, g_IVEC);
+
+    *((int*)TIMER_LIMIT) = 7000000;
+    *((int*)TIMER_CSR) = 1;
+    *((int*)TIMER_COUNT) = 0;
 
     // Set the BP leaving enough room for our stack (64 bytes)
     bp = asm2("PUSHREG", SP_REG); 
@@ -74,26 +82,13 @@ void startup() {
 
 /******************************************************************************/
 // Thread Safety: Safe
-void systrap(SyscallArg_t* argument) {
+static void systrap(SyscallArg_t* argument) {
     trap_handler(argument);
     asm("RTI");
 }
 
-/******************************************************************************/
-// Thread Safety: None - uses globals
-void ISR() {
-    if (g_currentStringLength > 0) {
-        *((char*)PIO_T_XDR) = *g_currentString;
-
-        g_currentStringLength--;
-        g_currentString++;
-    } else {
-        g_currentString = 0;
-        g_currentStringLength = 0;
-        *g_finished = DONE; // Signal to the user
-        g_finished = 0;
-        *((char*)PIO_T_IER) &= ~PIO_T_IE_XMIT;
-    }
+static void timerInterrupt() {
+    asm("OUTS", "a");
     asm("RTI");
 }
 
@@ -152,17 +147,10 @@ static void printString(SyscallArg_t* argument, int limit) {
         return;
     }
     // Start the output stage
+    argument->call = PRINTS_CALL;
+    argument->size = 0;
     argument->status = RESULT_PENDING;
-
-    g_currentString = argument->buffer;
-    g_currentStringLength = argument->size;
-    g_finished = &argument->status;
-
-    *((char*)PIO_T_IER) |= PIO_T_IE_XMIT;
-    *((char*)PIO_T_XDR) = *argument->buffer;
-
-    g_currentString++;
-    g_currentStringLength--;
+    asm("INP", argument);
 }
 static void getString(SyscallArg_t* argument, int limit) {
     // There must be 256 bytes between argument and limit
