@@ -19,10 +19,6 @@ typedef struct {
     int param2;
 } InpArg;
 
-static char* g_currentString;
-static int g_currentStringLength;
-static int* g_finished;
-
 static int g_IVEC[16];
 
 static void printString(SyscallArg_t* argument, int limit);
