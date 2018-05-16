@@ -4,8 +4,8 @@ DEBUG   = -dbg
 
 all: kernel users
 
-kernel: kernel.sl
-	slasm $(DEBUG) kernel.sl
+kernel: kernel.sl sched.sl mymalloc.sl
+	slasm $(DEBUG) kernel.sl sched.sl mymalloc.sl
 
 user: user.sl ulib.sl
 	slasm $(DEBUG) user.sl ulib.sl

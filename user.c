@@ -108,14 +108,15 @@ void checkPrintingAndBeyondLPFails() {
 /******************************************************************************/
 // Thread Safety: None
 int main() {
-    globalString = "This is the global string!\n";
+//     globalString = "This is the global string!\n";
 
-    checkPrintingFromGlobalSucceeds();
-    checkPrintingIntegersWorks();
-    checkPrintingPastLPFails();
-    checkPrintingNULLFails();
-    checkPrintingFromRightUnderStringLimitSucceeds();
-    checkPrintingAndBeyondLPFails();
+//     checkPrintingFromGlobalSucceeds();
+//     checkPrintingIntegersWorks();
+//     checkPrintingPastLPFails();
+//     checkPrintingNULLFails();
+//     checkPrintingFromRightUnderStringLimitSucceeds();
+//     checkPrintingAndBeyondLPFails();
+    prints("User ran");
 
     halt();
 }

@@ -5,19 +5,19 @@
 #include <machine_def.h>
 #include <syscodes.h>
 #include <string.h>
-#include <pio_term.h>
 #include <timer.h>
+
+#include "kerncommon.h"
+#include "sched.h"
+#include "mymalloc.h"
 #include "syscalls.h"
 
 #pragma feature inp
 #pragma startup startup
 
-// IO Operation block
-typedef struct {
-    int op;
-    char* param1;
-    int param2;
-} InpArg;
+#define TIMER_INTERVAL 14000000 // instructions
+#define OS_STACK_SIZE 256
+#define MEMORY_END_PAD 16
 
 static int g_IVEC[16];
 
@@ -27,52 +27,38 @@ static void getInteger(SyscallArg_t* argument, int limit);
 static void trap_handler(SyscallArg_t* argument);
 static void systrap(SyscallArg_t* argument);
 static void timerInterrupt();
+static void loadInitialProgram();
 
 /******************************************************************************/
 // Thread Safety: None
 void startup() {
-    InpArg io_blk;
+    int lowLimit;
+    int highLimit;
+    int memorySize;
 
-    int bp;
-    int high_mem;
-    int *stack_size;
-
+    // Initialize interrupts and preemption timer
     g_IVEC[1] = (int)systrap;
     g_IVEC[3] = (int)timerInterrupt;
     asm2("POPREG", IVEC_REG, g_IVEC);
 
-    *((int*)TIMER_LIMIT) = 7000000;
+    *((int*)TIMER_LIMIT) = TIMER_INTERVAL;
     *((int*)TIMER_CSR) = 1;
-    *((int*)TIMER_COUNT) = 0;
+    *((int*)TIMER_COUNT) = 0; 
 
-    // Set the BP leaving enough room for our stack (64 bytes)
-    bp = asm2("PUSHREG", SP_REG); 
-    bp += 64; 
-    asm2("POPREG", BP_REG, bp);
+    // Initialize the memory manager
+    lowLimit = asm2("PUSHREG", SP_REG); // OS Stack pointer
+    highLimit = asm2("PUSHREG", LP_REG); // Address of the end of memory
 
-    // Load user.slb into memory
-    io_blk.op = EXEC_CALL;
-    io_blk.param1 = (int)"user.slb";
-    io_blk.param2= 0;
-    asm("INP", &io_blk);
-    while (io_blk.op >= 0)
-    {
-    }
+    lowLimit += OS_STACK_SIZE;
+    memorySize = (highLimit - lowLimit) - MEMORY_END_PAD;
 
-    // Set the LP leaving 1000 bytes of stack space
-    stack_size = io_blk.param2;
-    high_mem = io_blk.param2 + *stack_size;
-    asm2("POPREG", LP_REG, high_mem);
+    my_mem_init((void*)lowLimit, memorySize);
 
-    // Set SP and FP
-    // NOTE: FP must be set LAST!
-    high_mem = io_blk.param2 + 4 - bp;
-    asm("DUP", high_mem);
-    asm2("POPREG", FP_REG);
-    asm2("POPREG", SP_REG);
+    sched_init();
+    sched_exec("user.slb");
 
-    // Execute user.slb
-    asm2("JMPUSER", 8); 
+    while(1) { }
+
     asm("HALT");
 }
 
@@ -83,8 +69,13 @@ static void systrap(SyscallArg_t* argument) {
     asm("RTI");
 }
 
+static ProcessorState_t* state;
 static void timerInterrupt() {
-    asm("OUTS", "a");
+    state = asm2("PUSHREG", FP_REG);
+    state--;
+
+    asm("OUTS", "\nwhop\n");
+    sched_next(state);
     asm("RTI");
 }
 
