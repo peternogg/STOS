@@ -10,6 +10,8 @@
 #define GETI   1
 #define GETS   2
 #define HALT   3
+#define EXIT   4
+#define EXEC   5
 
 // Errors and information (For SyscallArg_t.status)
 const int RESULT_PENDING = -0x02;

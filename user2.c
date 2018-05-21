@@ -9,7 +9,9 @@ int main()
         prints(" two\n");
     }
 
-    exit();
+    prints("Finished two!\n");
+
+    //exit();
 
     return 0;
 }

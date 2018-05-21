@@ -32,4 +32,4 @@ typedef struct {
 void sched_init();
 int sched_exec(char* filename);
 void sched_next(ProcessorState_t* context);
-void sched_removeCurrent();
+void sched_exitCurrent(ProcessorState_t* context);

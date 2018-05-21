@@ -15,8 +15,8 @@
 #pragma feature inp
 #pragma startup startup
 
-#define TIMER_INTERVAL 14000000 // instructions
-#define OS_STACK_SIZE 256
+#define TIMER_INTERVAL 140000 // instructions
+#define OS_STACK_SIZE 512
 #define MEMORY_END_PAD 16
 
 static int g_IVEC[16];
@@ -24,10 +24,11 @@ static int g_IVEC[16];
 static void printString(SyscallArg_t* argument, int limit);
 static void getString(SyscallArg_t* argument, int limit);
 static void getInteger(SyscallArg_t* argument, int limit);
-static void trap_handler(SyscallArg_t* argument);
+static void startNewProgram(SyscallArg_t* argument, int limit);
+static void exitCurrentProgram();
+static void trapHandler(SyscallArg_t* argument);
 static void systrap(SyscallArg_t* argument);
 static void timerInterrupt();
-static void loadInitialProgram();
 
 /******************************************************************************/
 // Thread Safety: None
@@ -39,11 +40,7 @@ void startup() {
     // Initialize interrupts and preemption timer
     g_IVEC[1] = (int)systrap;
     g_IVEC[3] = (int)timerInterrupt;
-    asm2("POPREG", IVEC_REG, g_IVEC);
-
-    *((int*)TIMER_LIMIT) = TIMER_INTERVAL;
-    *((int*)TIMER_CSR) = 1;
-    *((int*)TIMER_COUNT) = 0; 
+    asm2("POPREG", IVEC_REG, g_IVEC); 
 
     // Initialize the memory manager
     lowLimit = asm2("PUSHREG", SP_REG); // OS Stack pointer
@@ -55,26 +52,33 @@ void startup() {
     my_mem_init((void*)lowLimit, memorySize);
 
     sched_init();
-    sched_exec("user.slb");
+    sched_exec("user1.slb");
+
+    *((int*)TIMER_LIMIT) = TIMER_INTERVAL;
+    *((int*)TIMER_CSR) = 1;
+    *((int*)TIMER_COUNT) = TIMER_INTERVAL - 10;
 
     while(1) { }
 
     asm("HALT");
 }
-
+/* The interrupt frame whenever the kernel is activated */
+static ProcessorState_t* state;
 /******************************************************************************/
 // Thread Safety: Safe
 static void systrap(SyscallArg_t* argument) {
-    trap_handler(argument);
+    state = asm2("PUSHREG", SP_REG);
+    state--;
+
+    trapHandler(argument);
     asm("RTI");
 }
 
-static ProcessorState_t* state;
 static void timerInterrupt() {
     state = asm2("PUSHREG", FP_REG);
     state--;
 
-    asm("OUTS", "\nwhop\n");
+    //asm("OUTS", "\nwhop\n");
     sched_next(state);
     asm("RTI");
 }
@@ -88,7 +92,7 @@ static int stringIsInvalid(char* string, int length, char* limit) {
 
 /******************************************************************************/
 // Thread Safety: Safe if BP, LP, and *argument are not changed during execution
-static void trap_handler(SyscallArg_t* argument) {
+static void trapHandler(SyscallArg_t* argument) {
     // Adjust the argument pointer
     int base;
     int limit;
@@ -102,7 +106,6 @@ static void trap_handler(SyscallArg_t* argument) {
     if (argument > limit)
         return;
 
-    argument->status = OK;
     argument->buffer += base;
     // Don't let the user pass something outside their memory
     if (argument->buffer > limit)  {
@@ -110,14 +113,19 @@ static void trap_handler(SyscallArg_t* argument) {
         return;
     }
 
-    if (argument->call == HALT)
-        asm("HALT");
-    else if (argument->call == PRINTS)
+    // if (argument->call == HALT)
+    //     asm("HALT");
+    // else
+    if (argument->call == PRINTS)
         printString(argument, limit);
     else if (argument->call == GETS)
         getString(argument, limit);
     else if (argument->call == GETI)
         getInteger(argument, limit);
+    else if (argument->call == EXIT)
+        exitCurrentProgram();
+    else if (argument->call == EXEC)
+        startNewProgram(argument, limit);
     else
         argument->status = NO_SUCH_CALL;
 }
@@ -164,4 +172,22 @@ static void getInteger(SyscallArg_t* argument, int limit) {
 
     argument->status = RESULT_PENDING;
     asm("INP", argument); // Reuse argument as IO block
+}
+
+static void startNewProgram(SyscallArg_t* argument, int limit) {
+    if (argument->buffer == 0 || argument->size == 0) {
+        argument->status = INVALID_ARGUMENT;
+        return;
+    }
+
+    if (stringIsInvalid(argument->buffer, argument->size, limit)) {
+        argument->status = BAD_POINTER;
+        return;
+    }
+
+    sched_exec(argument->buffer);
+}
+
+static void exitCurrentProgram() {
+    sched_exitCurrent(state);
 }

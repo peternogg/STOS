@@ -4,14 +4,18 @@
  */
 #include "ulib.h"
 
+#pragma startup ulib_startup
+// User code forward declaration
+int main();
+
 /******************************************************************************/
 // Thread Safety: Safe if argument is not shared between threads
 static int syscall(SyscallArg_t* argument) {
-    if (argument->call == HALT) {
+    if (argument->call == HALT || argument->call == EXIT) {
         if (argument->buffer != NULL)
             return ERR;
     } else if (argument->call == PRINTS || argument->call == GETI 
-            || argument->call == GETS) {
+            || argument->call == GETS || argument->call == EXEC) {
         if (argument->buffer == NULL || argument->size == 0)
             return ERR;
     } else {
@@ -21,7 +25,7 @@ static int syscall(SyscallArg_t* argument) {
 
     asm("TRAP");
 
-    if (argument->status == RESULT_PENDING) {
+    if (argument->status == RESULT_PENDING && argument->call != EXEC) {
         // Wait on the result - either argument->call or argument->status
         while(argument->call >= 0) 
         {}
@@ -35,6 +39,11 @@ static int syscall(SyscallArg_t* argument) {
     }
     
     return argument->status;
+}
+
+void ulib_startup() {
+    main();
+    exit();
 }
 
 /******************************************************************************/
@@ -80,9 +89,7 @@ int prints(char* string) {
     
     arg.size = stringLength + 1;
 
-    syscall(&arg);
-
-    if (arg.status != OK)
+    if (syscall(&arg) == ERR || arg.status != OK)
         return ERR;
 
     return OK;
@@ -106,9 +113,9 @@ int geti() {
     arg.buffer = (char*)&val;
     arg.size = sizeof(int);
 
-    syscall(&arg);
+    
 
-    if (arg.status != OK)
+    if (syscall(&arg) == ERR || arg.status != OK)
         return ERR;
 
     return val;
@@ -123,20 +130,34 @@ int gets(char* buff) {
     arg.buffer = buff;
     arg.size = 256;
 
-    syscall(&arg);
-
-    if (arg.status != OK)
+    if (syscall(&arg) == ERR || arg.status != OK)
         return ERR;
 
     return OK;
 }
 
 int exit() {
-    halt();
+    SyscallArg_t arg;
+    arg.call = EXIT;
+    arg.buffer = NULL;
+    arg.size = 0;
+
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
 }
 
 int exec(char* filename) {
-    return prints(filename);
+    SyscallArg_t arg;
+    arg.call = EXEC;
+    arg.buffer = filename;
+    arg.size = safe_strlen(filename);
+    if (arg.size == -1)
+        return ERR;
+
+    arg.size += 1;
+    
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
 }
 
 /******************************************************************************/
@@ -147,9 +168,7 @@ int halt() {
     arg.buffer = NULL;
     arg.size = 0;
 
-    syscall(&arg);
-
-    if (arg.status != OK)
+    if (syscall(&arg) == ERR || arg.status != OK)
         return ERR;
     
     return OK;

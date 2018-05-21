@@ -9,6 +9,8 @@ int main()
         prints(" three\n");
     }
 
+    prints("Finished three!\n");
+
     exit();
 
     return 0;
