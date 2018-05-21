@@ -4,6 +4,7 @@
 
 #include "mymalloc.h"
 #include "kerncommon.h"
+#include "syscalls.h"
 #include "sched.h"
 
 #define PROC_MAX 20
@@ -19,7 +20,6 @@ static void findNextProcess(ProcessorState_t* context, char oldStatus, char newS
  * Initializes the scheduler and sets the idle task to the context given
  * 
  * Preconditions:
- *  idleProcess is not null and is a sane context, like the start of a function
  *  
  * Postconditions:
  *  g_ProcessTable is reset and any processes are 'killed'
@@ -41,6 +41,15 @@ void sched_init() {
     g_ProcessTable[0].pname[1] = 0;
 }
 
+int sched_userExec(SyscallArg_t* arg) {
+    int slot = sched_exec(arg->buffer);
+    if (slot > 0) {
+        g_ProcessTable[slot].context.sp = (int)arg;
+    }
+
+    return slot;
+}
+
 /*******************************************************************************
  * Start a new process, with the filename given in the InpArg argument's param1
  * 
@@ -54,7 +63,7 @@ void sched_init() {
  *  io->param2 is set to 0
  *  
  * Returns:
- *  NO_SLOTS_AVAILABLE, or 0 on success. 
+ *  NO_SLOTS_AVAILABLE(-1), OUT_OF_MEMORY(-2), or the selected slot on success. 
  * 
  * Thread safety: None
  */
@@ -64,26 +73,16 @@ int sched_exec(char* filename) {
     int limit;
     InpArg* io;
 
-    char buff[14];
-
     /* Find an open process slot in the list */
     slot = findSlotWithStatus(FREE_SLOT, g_CurrentTask);
     
     if (slot == -1)
         return NO_SLOTS_AVAILABLE;
 
-    // asm("OUTS", "\nSelected slot ");
-    // asm("OUTS", itostr(slot, buff));
-    // asm("OUTS", " for new program ");
-    // asm("OUTS", filename);
-    // asm("OUTS", "\n");
-
     /* Set the loading bounds for the new program */
     base = my_get_largest(&limit);
     if (base == NULL)
         return OUT_OF_MEMORY;
-
-    //asm("OUTS", "Enougn memory was available\n");
 
     /* Set up the new slot and borrow some of the fields of the context for the
     argument to INP */
@@ -105,8 +104,7 @@ int sched_exec(char* filename) {
     /* Start loading the program */
     asm("INP", io);
     while(io->op >= 0) {}
-    finalizeLoading(&g_ProcessTable[slot]);
-    return 0;
+    return slot;
 }
 
 static void dumpProcessBlock(int idx) {
@@ -118,6 +116,8 @@ static void dumpProcessBlock(int idx) {
     asm("OUTS", block->pname);
     asm("OUTS", "\nState: ");
     asm("OUTS", itostr(block->state, buff));
+    asm("OUTS", "\nSP value: ");
+    asm("OUTS", itostr(block->context.sp, buff));
     asm("OUTS", "\n== END BLOCK ==\n");
 }
 
@@ -164,47 +164,39 @@ void sched_exitCurrent(ProcessorState_t* context) {
 }
 
 static void findNextProcess(ProcessorState_t* context, char oldStatus, char newStatus) {
+    //dumpPTable();
     /* Find the next process which is runnable or loadable */
     //dumpPTable();
-    int next = findSlotWithStatus(READY, g_CurrentTask);
+    int next = findSlotWithStatus(READY | LOADING, g_CurrentTask);
     //char buff[14];
-    ProcessInfo_t* nextProcess;
+    ProcessInfo_t* nextProcess = NULL;
     /* Save the old context */
     memcpy(&g_ProcessTable[g_CurrentTask].context, context, sizeof(*context));
     g_ProcessTable[g_CurrentTask].state = oldStatus;
 
-    if (next == -1)
-        next = 0;
-
     /* Ensure that we get a process which is actually runnable */
-    //do {
-        // if (next == -1) {
-        //     /* The loop didn't find any runnable processes, so start idling */
-        //     nextProcess = &g_ProcessTable[0];
-        //     g_CurrentTask = next;
-        //     next = 0;
-        // } else {
+    do {
+        if (next == -1) {
+            /* The loop didn't find any runnable processes, so start idling */
+            nextProcess = &g_ProcessTable[0];
+            next = 0;
+        } else {
             /* Found a ready slot to run */
-            // nextProcess = &g_ProcessTable[next];
-            // g_CurrentTask = next;
-            // next = 0;
-            //asm("OUTS", "\nSelected slot ");
-            //asm("OUTS", itostr(next, buff));
-            // if (nextProcess->state == LOADING) {
-            //     if (finalizeLoading(nextProcess) > 0) {
-            //         /* If the program wasn't actually ready, try again */
-            //         next = findSlotWithStatus(READY, next);
-            //     } else {
-            //         nextProcess = &g_ProcessTable[next];
-            //     }
-            // } else
-            //     nextProcess = &g_ProcessTable[next];
-    //    }
-    //} while(next > 0);
+            if (g_ProcessTable[next].state == LOADING) {
+                if (finalizeLoading(&g_ProcessTable[next]) > 0) {
+                    /* If the program wasn't actually ready, try again */
+                    next = findSlotWithStatus(READY | LOADING, next);
+                } else {
+                    nextProcess = &g_ProcessTable[next];
+                }
+            } else
+                nextProcess = &g_ProcessTable[next];
+       }
+    } while(nextProcess == NULL);
 
+    memcpy(context, &nextProcess->context, sizeof(*context));
+    nextProcess->state = newStatus;
     g_CurrentTask = next;
-    memcpy(context, &g_ProcessTable[g_CurrentTask].context, sizeof(*context));
-    g_ProcessTable[g_CurrentTask].state = newStatus;
 }
 
 /*******************************************************************************
@@ -255,12 +247,19 @@ static int finalizeLoading(ProcessInfo_t* process) {
     int* stackSize;
     InpArg* io = &process->context.lp;
 
-    if (io->op > 0)
+    if (io->op >= 0)
         return 1; // Not done loading
 
-    if ((int)io->op & 0x40000000)
+    // Notify userspace of the finished loading
+    if (process->context.sp != NULL) {
+        ((SyscallArg_t*)process->context.sp)->call = io->op;
+        process->context.sp = 0;
+    }
+
+    if (io->op & 0x40000000) {
         return 2; // Error while loading
-    
+    }
+
     // Set the registers for the new process
     stackSize = io->param2;
     process->context.sp = (int)stackSize + 4 - process->context.bp;

@@ -1,7 +1,9 @@
 #pragma once
 
-#define NO_SLOTS_AVAILABLE 1
-#define OUT_OF_MEMORY 2
+#include "syscalls.h"
+
+#define NO_SLOTS_AVAILABLE -1
+#define OUT_OF_MEMORY -2
 
 // Process states
 #define RUNNING 0x01
@@ -31,5 +33,6 @@ typedef struct {
 
 void sched_init();
 int sched_exec(char* filename);
+int sched_userExec(SyscallArg_t* argument);
 void sched_next(ProcessorState_t* context);
 void sched_exitCurrent(ProcessorState_t* context);

@@ -185,7 +185,8 @@ static void startNewProgram(SyscallArg_t* argument, int limit) {
         return;
     }
 
-    sched_exec(argument->buffer);
+    argument->status = RESULT_PENDING;
+    sched_userExec(argument);
 }
 
 static void exitCurrentProgram() {

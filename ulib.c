@@ -25,7 +25,7 @@ static int syscall(SyscallArg_t* argument) {
 
     asm("TRAP");
 
-    if (argument->status == RESULT_PENDING && argument->call != EXEC) {
+    if (argument->status == RESULT_PENDING) {
         // Wait on the result - either argument->call or argument->status
         while(argument->call >= 0) 
         {}
