@@ -1,6 +1,7 @@
 #pragma once
 
 #include "syscalls.h"
+#include "queue.h"
 
 #define NO_SLOTS_AVAILABLE -1
 #define OUT_OF_MEMORY -2

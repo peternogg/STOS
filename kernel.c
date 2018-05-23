@@ -54,11 +54,13 @@ void startup() {
     sched_init();
     sched_exec("user1.slb");
 
+    *((int*)TIMER_CSR) = 0;
     *((int*)TIMER_LIMIT) = TIMER_INTERVAL;
-    *((int*)TIMER_CSR) = 1;
-    *((int*)TIMER_COUNT) = TIMER_INTERVAL - 10;
+    // Start the timer close to its end so the OS doesn't idle for long
+    *((int*)TIMER_COUNT) = TIMER_INTERVAL - 10; 
+    *((int*)TIMER_CSR) = TIMER_CSR_IE;
 
-    while(1) { }
+    while(1) { asm("NOP"); } // The NOP helps to make this loop stand out
 
     asm("HALT");
 }

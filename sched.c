@@ -4,17 +4,19 @@
 
 #include "mymalloc.h"
 #include "kerncommon.h"
-#include "syscalls.h"
 #include "sched.h"
+#include "queue.h"
 
 #define PROC_MAX 20
 static ProcessInfo_t g_ProcessTable[PROC_MAX];
-static int g_CurrentTask;
-static int g_RunningTasks;
+static ProcessInfo_t* g_CurrentProcess;
+static queue_t g_ReadyQueue;
 
-static int findSlotWithStatus(int status, int start);
+static ProcessInfo_t* findNextReady();
+static int findSlotWithStatus(char status, int start);
 static int finalizeLoading(ProcessInfo_t* process);
-static void findNextProcess(ProcessorState_t* context, char oldStatus, char newStatus);
+
+static void dumpPTable();
 
 /*******************************************************************************
  * Initializes the scheduler and sets the idle task to the context given
@@ -27,24 +29,28 @@ static void findNextProcess(ProcessorState_t* context, char oldStatus, char newS
  */
 void sched_init() {
     int i;
-    for(i = 1; i < PROC_MAX; i++) {
+    for(i = 0; i < PROC_MAX; i++) {
         g_ProcessTable[i].state = FREE_SLOT;
         g_ProcessTable[i].pname[0] = 0;
         memset(&g_ProcessTable[i].context, 0, sizeof(ProcessorState_t));
     }
 
+    g_ReadyQueue = Q_Init(PROC_MAX);
+
     /* Set the idle process to the OS, and set up to idle */
-    g_CurrentTask = 0;
-    g_RunningTasks = 0;
+    g_CurrentProcess = &g_ProcessTable[0];
     g_ProcessTable[0].state = RUNNING;
     g_ProcessTable[0].pname[0] = 'k';
     g_ProcessTable[0].pname[1] = 0;
+    //asm("OUTS", "===");
+    //asm("OUTS", "initial table block");
+    //dumpPTable();
 }
 
 int sched_userExec(SyscallArg_t* arg) {
     int slot = sched_exec(arg->buffer);
     if (slot > 0) {
-        g_ProcessTable[slot].context.sp = (int)arg;
+        g_ProcessTable[slot].context.sp = (int)&arg->call;
     }
 
     return slot;
@@ -74,7 +80,7 @@ int sched_exec(char* filename) {
     InpArg* io;
 
     /* Find an open process slot in the list */
-    slot = findSlotWithStatus(FREE_SLOT, g_CurrentTask);
+    slot = findSlotWithStatus(FREE_SLOT, 0);
     
     if (slot == -1)
         return NO_SLOTS_AVAILABLE;
@@ -86,12 +92,14 @@ int sched_exec(char* filename) {
 
     /* Set up the new slot and borrow some of the fields of the context for the
     argument to INP */
-    g_RunningTasks++;
     strncpy(g_ProcessTable[slot].pname, filename, PROG_NAME_LENGTH - 1);
     g_ProcessTable[slot].pname[PROG_NAME_LENGTH] = 0;
     g_ProcessTable[slot].state = LOADING;
     g_ProcessTable[slot].context.flag = FL_USER_MODE;
     g_ProcessTable[slot].context.bp = (int)base;
+
+    //asm("OUTS", "PTable after loading a program\n");
+    //dumpPTable();
     // lp-ip-fp are contiguous words which aren't needed during loading
     // (lp is set later, when the load finishes)
     io = (InpArg*)&g_ProcessTable[slot].context.lp;
@@ -103,22 +111,38 @@ int sched_exec(char* filename) {
     asm2("POPREG", LP_REG, limit);
     /* Start loading the program */
     asm("INP", io);
+    Q_Enqueue(g_ReadyQueue, &g_ProcessTable[slot]);
     while(io->op >= 0) {}
     return slot;
 }
 
-static void dumpProcessBlock(int idx) {
+static void dumpProcessInfo(ProcessInfo_t* block) {
     char buff[14];
-    ProcessInfo_t* block = &g_ProcessTable[idx];
-    asm("OUTS", "Block index ");
-    asm("OUTS", itostr(idx, buff));
+    asm("OUTS", "\nAddress: 0x");
+    asm("OUTS", xtostr((int)block, buff));
     asm("OUTS", "\nName: ");
     asm("OUTS", block->pname);
     asm("OUTS", "\nState: ");
     asm("OUTS", itostr(block->state, buff));
-    asm("OUTS", "\nSP value: ");
-    asm("OUTS", itostr(block->context.sp, buff));
+    asm("OUTS", "\nContext: ");
+    asm("OUTS", "\n-> SP = 0x");
+    asm("OUTS", xtostr(block->context.sp, buff));
+    asm("OUTS", "\n-> FLAGS = 0x");
+    asm("OUTS", xtostr(block->context.flag, buff));
+    asm("OUTS", "\n-> BP = 0x");
+    asm("OUTS", xtostr(block->context.bp, buff));
+    asm("OUTS", "\n-> LP = 0x");
+    asm("OUTS", xtostr(block->context.lp, buff));
+    asm("OUTS", "\n-> IP = 0x");
+    asm("OUTS", xtostr(block->context.ip, buff));
+    asm("OUTS", "\n-> FP = 0x");
+    asm("OUTS", xtostr(block->context.fp, buff));
     asm("OUTS", "\n== END BLOCK ==\n");
+}
+
+static void dumpProcessBlock(int idx) {
+    ProcessInfo_t* block = &g_ProcessTable[idx];
+    dumpProcessInfo(block);
 }
 
 static void dumpPTable() {
@@ -127,7 +151,18 @@ static void dumpPTable() {
     for (i = 0; i < PROC_MAX && g_ProcessTable[i].state != FREE_SLOT; i++) {
         dumpProcessBlock(i);
     }
+    asm("OUTS", "Current program information: \n");
+    dumpProcessInfo(g_CurrentProcess);
+
     asm("OUTS", "\n==== END PTABLE DUMP ====\n");
+}
+
+static void nextWithStates(ProcessorState_t* context, char old, char new) {
+    memcpy(&g_CurrentProcess->context, context, sizeof(ProcessorState_t));
+    g_CurrentProcess->state = old;
+    g_CurrentProcess = findNextReady();
+    g_CurrentProcess->state = new;
+    memcpy(context, &g_CurrentProcess->context, sizeof(ProcessorState_t));   
 }
 
 /*******************************************************************************
@@ -152,51 +187,47 @@ static void dumpPTable() {
  * Thread safety: None
  */
 void sched_next(ProcessorState_t* context) {
-    findNextProcess(context, READY, RUNNING);
+    if (g_CurrentProcess != &g_ProcessTable[0])
+        Q_Enqueue(g_ReadyQueue, g_CurrentProcess);
+
+    nextWithStates(context, READY, RUNNING);
+    //dumpPTable();   
 }
 
 void sched_exitCurrent(ProcessorState_t* context) {
-    my_free(g_ProcessTable[g_CurrentTask].context.bp);
-    g_RunningTasks--;
-    if (g_RunningTasks <= 0)
+    my_free(g_CurrentProcess->context.bp);
+    if (Q_Elements(g_ReadyQueue) <= 0)
         asm("HALT");
-    findNextProcess(context, FREE_SLOT, RUNNING);
+
+    nextWithStates(context, FREE_SLOT, RUNNING);
 }
 
-static void findNextProcess(ProcessorState_t* context, char oldStatus, char newStatus) {
-    //dumpPTable();
-    /* Find the next process which is runnable or loadable */
-    //dumpPTable();
-    int next = findSlotWithStatus(READY | LOADING, g_CurrentTask);
-    //char buff[14];
-    ProcessInfo_t* nextProcess = NULL;
-    /* Save the old context */
-    memcpy(&g_ProcessTable[g_CurrentTask].context, context, sizeof(*context));
-    g_ProcessTable[g_CurrentTask].state = oldStatus;
+static ProcessInfo_t* findNextReady() {
+    ProcessInfo_t* next = NULL;
+    int readyCount = Q_Elements(g_ReadyQueue);
 
-    /* Ensure that we get a process which is actually runnable */
-    do {
-        if (next == -1) {
-            /* The loop didn't find any runnable processes, so start idling */
-            nextProcess = &g_ProcessTable[0];
-            next = 0;
-        } else {
-            /* Found a ready slot to run */
-            if (g_ProcessTable[next].state == LOADING) {
-                if (finalizeLoading(&g_ProcessTable[next]) > 0) {
-                    /* If the program wasn't actually ready, try again */
-                    next = findSlotWithStatus(READY | LOADING, next);
-                } else {
-                    nextProcess = &g_ProcessTable[next];
-                }
-            } else
-                nextProcess = &g_ProcessTable[next];
-       }
-    } while(nextProcess == NULL);
+    // Try to find a process which is ready to run. If there's none that are 
+    // ready, then fall out of the loop and start the OS
+    while(readyCount > 0 && next == NULL) {
+        next = (ProcessInfo_t*)Q_Dequeue(g_ReadyQueue);
+        // asm("OUTS", "Candidate is ");
+        // asm("OUTS", next->pname);
+        // asm("OUTS", "\n");
+        if (next->state == LOADING) {
+            // asm("OUTS", "Candidate is loading\n");
+            if (finalizeLoading(next) != 0) {
+                // asm("OUTS", "Candidate wasn't done loading\n");
+                Q_Enqueue(g_ReadyQueue, next);
+                next = NULL;
+                readyCount--;
+            }
+        }
+    } 
 
-    memcpy(context, &nextProcess->context, sizeof(*context));
-    nextProcess->state = newStatus;
-    g_CurrentTask = next;
+    if (readyCount <= 0)
+        return &g_ProcessTable[0];
+
+    return next;
 }
 
 /*******************************************************************************
@@ -217,7 +248,7 @@ static void findNextProcess(ProcessorState_t* context, char oldStatus, char newS
  * 
  * * Thread safety: Possible race condition on g_ProcessTable entries
  */
-static int findSlotWithStatus(int status, int start) {
+static int findSlotWithStatus(char status, int start) {
     int slot = -1;
     int cand;
     /* Check the slots after the start */
@@ -244,6 +275,7 @@ static int findSlotWithStatus(int status, int start) {
 static int finalizeLoading(ProcessInfo_t* process) {
     // If the process is done loading, then finalize its settings. 
     // Otherwise, return 1
+    //dumpPTable();
     int* stackSize;
     InpArg* io = &process->context.lp;
 
@@ -252,8 +284,7 @@ static int finalizeLoading(ProcessInfo_t* process) {
 
     // Notify userspace of the finished loading
     if (process->context.sp != NULL) {
-        ((SyscallArg_t*)process->context.sp)->call = io->op;
-        process->context.sp = 0;
+        *((int*)process->context.sp) = io->op;
     }
 
     if (io->op & 0x40000000) {
@@ -266,6 +297,8 @@ static int finalizeLoading(ProcessInfo_t* process) {
     process->context.lp = (int)stackSize + *stackSize;
     process->context.fp = process->context.sp;
     process->context.ip = 8;
+    //asm("OUTS", "Set user program's registers\n");
+    //dumpPTable();
 
     // Trim memory
     my_set_limit((void*)process->context.bp, (void*)process->context.lp);
