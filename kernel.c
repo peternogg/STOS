@@ -26,6 +26,7 @@ static void getString(SyscallArg_t* argument, int limit);
 static void getInteger(SyscallArg_t* argument, int limit);
 static void startNewProgram(SyscallArg_t* argument, int limit);
 static void exitCurrentProgram();
+static void yieldCPU(SyscallArg_t* argument);
 static void trapHandler(SyscallArg_t* argument);
 static void systrap(SyscallArg_t* argument);
 static void timerInterrupt();
@@ -128,6 +129,8 @@ static void trapHandler(SyscallArg_t* argument) {
         exitCurrentProgram();
     else if (argument->call == EXEC)
         startNewProgram(argument, limit);
+    else if (argument->call == YIELD)
+        yieldCPU(argument);
     else
         argument->status = NO_SUCH_CALL;
 }
@@ -193,4 +196,12 @@ static void startNewProgram(SyscallArg_t* argument, int limit) {
 
 static void exitCurrentProgram() {
     sched_exitCurrent(state);
+}
+
+static void yieldCPU(SyscallArg_t* argument) {
+    argument->status = OK;
+    sched_next(state);
+
+    // Reset the timer to give the next process its full timeslice
+    *((int*)TIMER_COUNT) = 0;
 }

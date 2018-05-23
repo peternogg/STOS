@@ -12,10 +12,11 @@
 #define NULL 0
 #define ERR -1
 
-int prints(char* string);
-int printi(int value);
+int exec(char* filename);
+int exit();
 int geti();
 int gets(char* buff);
 int halt();
-int exit();
-int exec(char* filename);
+int printi(int value);
+int prints(char* string);
+int yield();

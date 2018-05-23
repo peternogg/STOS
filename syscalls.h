@@ -12,6 +12,7 @@
 #define HALT   3
 #define EXIT   4
 #define EXEC   5
+#define YIELD  6
 
 // Errors and information (For SyscallArg_t.status)
 const int RESULT_PENDING = -0x02;
