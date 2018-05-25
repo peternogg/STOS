@@ -29,7 +29,8 @@ static int syscall(SyscallArg_t* argument) {
     } else if (argument->call == SLEEP) {
         if (argument->buffer != NULL || argument->size == 0)
             return ERR;
-    } else {// Invalid call
+    } else {
+        // Invalid call
         return ERR;
     }
 
@@ -37,10 +38,10 @@ static int syscall(SyscallArg_t* argument) {
 
     if (argument->status == RESULT_PENDING) {
         // Wait on the result - either argument->call or argument->status
-        while(argument->call >= 0) 
-        {
-            yield(); // Give up the CPU instead of polling
-        }
+        // while(argument->call >= 0) 
+        // {
+        //     yield(); // Give up the CPU instead of polling
+        // }
 
         // Check if there were errors on an async IO action
         if (argument->call & 0x40000000) {

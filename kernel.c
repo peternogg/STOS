@@ -156,6 +156,8 @@ static void printString(SyscallArg_t* argument, int limit) {
     argument->size = 0;
     argument->status = RESULT_PENDING;
     asm("INP", argument);
+
+    sched_IOYieldCurrent(state, (InpArg*)argument);
 }
 static void getString(SyscallArg_t* argument, int limit) {
     // There must be 256 bytes between argument and limit
@@ -168,6 +170,8 @@ static void getString(SyscallArg_t* argument, int limit) {
     argument->size = 0;
     argument->status = RESULT_PENDING;
     asm("INP", argument);
+
+    sched_IOYieldCurrent(state, (InpArg*)argument);
 }
 
 static void getInteger(SyscallArg_t* argument, int limit) {
@@ -182,6 +186,8 @@ static void getInteger(SyscallArg_t* argument, int limit) {
 
     argument->status = RESULT_PENDING;
     asm("INP", argument); // Reuse argument as IO block
+
+    sched_IOYieldCurrent(state, (InpArg*)argument);
 }
 
 static void startNewProgram(SyscallArg_t* argument, int limit) {
@@ -195,8 +201,9 @@ static void startNewProgram(SyscallArg_t* argument, int limit) {
         return;
     }
 
-    argument->status = RESULT_PENDING;
-    sched_userExec(argument);
+    argument->status = OK;
+    sched_exec(argument->buffer);
+    //sched_IOYieldCurrent(state, (InpArg*)argument);
 }
 
 static void exitCurrentProgram() {

@@ -1,5 +1,12 @@
 #pragma once
 
+#include <string.h>
+#include <syscodes.h>
+#include <machine_def.h>
+#include <timer.h>
+
+#include "mymalloc.h"
+#include "kerncommon.h"
 #include "syscalls.h"
 #include "queue.h"
 
@@ -12,6 +19,7 @@
 #define LOADING     0x04
 #define FREE_SLOT   0x08
 #define SLEEPING    0x10
+#define DOING_IO    0x20
 
 #define PROG_NAME_LENGTH 30
 
@@ -31,13 +39,15 @@ typedef struct {
     ProcessorState_t context;
     // System time to sleep until
     int wakeAt;
+    // The most recent IO request the process issued
+    InpArg* currentIO;
     // The exectuable's name, null terminated
     char pname[PROG_NAME_LENGTH];
 } ProcessInfo_t;
 
 void sched_init();
 int sched_exec(char* filename);
-int sched_userExec(SyscallArg_t* argument);
 void sched_next(ProcessorState_t* context);
 void sched_exitCurrent(ProcessorState_t* context);
 void sched_sleepCurrent(ProcessorState_t* context, int wakeAt);
+void sched_IOYieldCurrent(ProcessorState_t* context, InpArg* ioInfo);

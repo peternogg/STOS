@@ -1,17 +1,10 @@
-#include <string.h>
-#include <syscodes.h>
-#include <machine_def.h>
-#include <timer.h>
-
-#include "mymalloc.h"
-#include "kerncommon.h"
 #include "sched.h"
-#include "queue.h"
 
 #define PROC_MAX 20
 static ProcessInfo_t g_ProcessTable[PROC_MAX];
 static ProcessInfo_t* g_CurrentProcess;
 static queue_t g_ReadyQueue;
+static int g_LiveProcessCount;
 
 static ProcessInfo_t* findNextReady();
 static int findSlotWithStatus(char status, int start);
@@ -36,21 +29,19 @@ void sched_init() {
     }
 
     g_ReadyQueue = Q_Init(PROC_MAX);
+    g_LiveProcessCount = 0;
 
     /* Set the idle process to the OS, and set up to idle */
     g_CurrentProcess = &g_ProcessTable[0];
     g_ProcessTable[0].state = RUNNING;
     g_ProcessTable[0].pname[0] = 'k';
     g_ProcessTable[0].pname[1] = 0;
-    //asm("OUTS", "===");
-    //asm("OUTS", "initial table block");
-    //dumpPTable();
 }
 
-int sched_userExec(SyscallArg_t* arg) {
-    int slot = sched_exec(arg->buffer);
+int sched_userExec(SyscallArg_t* argument, ProcessorState_t* context) {
+    int slot = sched_exec(argument->buffer);
     if (slot > 0) {
-        g_ProcessTable[slot].context.sp = (int)&arg->call;
+        sched_IOYieldCurrent(context, (InpArg*)&g_ProcessTable[slot].context.lp);
     }
 
     return slot;
@@ -113,6 +104,7 @@ int sched_exec(char* filename) {
     /* Start loading the program */
     asm("INP", io);
     Q_Enqueue(g_ReadyQueue, &g_ProcessTable[slot]);
+    g_LiveProcessCount++;
     return slot;
 }
 
@@ -122,13 +114,23 @@ static void dumpProcessInfo(ProcessInfo_t* block) {
     asm("OUTS", xtostr((int)block, buff));
     asm("OUTS", "\nName: ");
     asm("OUTS", block->pname);
-    asm("OUTS", "\nState: ");
-    asm("OUTS", itostr(block->state, buff));
-    asm("OUTS", "\nWakes at: ");
-    asm("OUTS", itostr(block->wakeAt, buff));
-    asm("OUTS", " (it is currently ");
-    asm("OUTS", itostr(*(int*)TIMER_TIME, buff));
-    asm("OUTS", ")\nContext: ");
+    asm("OUTS", "\nState: 0x");
+    asm("OUTS", xtostr(block->state, buff));
+    if (block->state == DOING_IO) {
+        asm("OUTS", "\nIO Address: ");
+        if (block->currentIO)
+            asm("OUTS", xtostr((int)block->currentIO, buff));
+        else
+            asm("OUTS", "(null)");
+    }
+    if (block->state == SLEEPING) {
+        asm("OUTS", "\nWakes at: ");
+        asm("OUTS", itostr(block->wakeAt, buff));
+        asm("OUTS", " (it is currently ");
+        asm("OUTS", itostr(*(int*)TIMER_TIME, buff));
+        asm("OUTS", ")");
+    }
+    asm("OUTS", "\nContext: ");
     asm("OUTS", "\n-> SP = 0x");
     asm("OUTS", xtostr(block->context.sp, buff));
     asm("OUTS", "\n-> FLAGS = 0x");
@@ -152,7 +154,7 @@ static void dumpProcessBlock(int idx) {
 static void dumpPTable() {
     int i;
     asm("OUTS", "\n==== PTABLE DUMP ====\n");
-    for (i = 0; i < PROC_MAX && g_ProcessTable[i].state != FREE_SLOT; i++) {
+    for (i = 0; i < PROC_MAX; i++) {
         dumpProcessBlock(i);
     }
     asm("OUTS", "Current program information: \n");
@@ -191,8 +193,22 @@ static void nextWithStates(ProcessorState_t* context, char old, char new) {
  * Thread safety: None
  */
 void sched_next(ProcessorState_t* context) {
+    int idx;
+    ProcessInfo_t* curr;
     if (g_CurrentProcess != &g_ProcessTable[0])
         Q_Enqueue(g_ReadyQueue, g_CurrentProcess);
+
+    // Check for IO which is done, and return the process to running
+    for (idx = 1; idx < PROC_MAX; idx++) {
+        curr = &g_ProcessTable[idx];
+        if (curr->state == DOING_IO) {
+            if (curr->currentIO->op < 0) {
+                curr->state = READY;
+                curr->currentIO = NULL;
+                Q_Enqueue(g_ReadyQueue, curr);
+            }
+        }
+    }
 
     nextWithStates(context, READY, RUNNING);
     //dumpPTable();   
@@ -200,16 +216,23 @@ void sched_next(ProcessorState_t* context) {
 
 void sched_exitCurrent(ProcessorState_t* context) {
     my_free(g_CurrentProcess->context.bp);
-    if (Q_Elements(g_ReadyQueue) <= 0)
+    g_LiveProcessCount--;
+    if (g_LiveProcessCount <= 0)
         asm("HALT");
 
     nextWithStates(context, FREE_SLOT, RUNNING);
+    dumpPTable();
 }
 
 void sched_sleepCurrent(ProcessorState_t* context, int wakeAt) {
     g_CurrentProcess->wakeAt = *((int*)TIMER_TIME) + wakeAt;
     Q_Enqueue(g_ReadyQueue, g_CurrentProcess);
     nextWithStates(context, SLEEPING, RUNNING);
+}
+
+void sched_IOYieldCurrent(ProcessorState_t* context, InpArg* ioInfo) {
+    g_CurrentProcess->currentIO = ioInfo;
+    nextWithStates(context, DOING_IO, RUNNING);
 }
 
 static ProcessInfo_t* findNextReady() {
