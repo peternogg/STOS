@@ -26,8 +26,10 @@ static int syscall(SyscallArg_t* argument) {
         if (argument->buffer == NULL || argument->size == 0) {
             return ERR;
         }
-    } else {
-        // Invalid call
+    } else if (argument->call == SLEEP) {
+        if (argument->buffer != NULL || argument->size == 0)
+            return ERR;
+    } else {// Invalid call
         return ERR;
     }
 
@@ -195,4 +197,28 @@ int yield() {
         return ERR;
 
     return OK;
+}
+
+int sleep(int sleepTime) {
+    SyscallArg_t arg;
+    arg.call = SLEEP;
+    arg.buffer = NULL;
+    arg.size = sleepTime;
+
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
+
+    return OK;
+}
+
+int get_time() {
+    SyscallArg_t arg;
+    arg.call = GET_TIME;
+    arg.buffer = NULL;
+    arg.size = 0;
+
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
+    
+    return arg.size;
 }

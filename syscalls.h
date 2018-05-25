@@ -6,13 +6,15 @@
 #pragma once
 
 // Syscall numbers
-#define PRINTS 0
-#define GETI   1
-#define GETS   2
-#define HALT   3
-#define EXIT   4
-#define EXEC   5
-#define YIELD  6
+#define PRINTS   0
+#define GETI     1
+#define GETS     2
+#define HALT     3
+#define EXIT     4
+#define EXEC     5
+#define YIELD    6
+#define SLEEP    7
+#define GET_TIME 8
 
 // Errors and information (For SyscallArg_t.status)
 const int RESULT_PENDING = -0x02;

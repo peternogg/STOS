@@ -1,6 +1,7 @@
 #include <string.h>
 #include <syscodes.h>
 #include <machine_def.h>
+#include <timer.h>
 
 #include "mymalloc.h"
 #include "kerncommon.h"
@@ -30,9 +31,8 @@ static void dumpPTable();
 void sched_init() {
     int i;
     for(i = 0; i < PROC_MAX; i++) {
+        memset(&g_ProcessTable[i], 0, sizeof(ProcessInfo_t));
         g_ProcessTable[i].state = FREE_SLOT;
-        g_ProcessTable[i].pname[0] = 0;
-        memset(&g_ProcessTable[i].context, 0, sizeof(ProcessorState_t));
     }
 
     g_ReadyQueue = Q_Init(PROC_MAX);
@@ -87,8 +87,9 @@ int sched_exec(char* filename) {
 
     /* Set the loading bounds for the new program */
     base = my_get_largest(&limit);
-    if (base == NULL)
+    if (base == NULL) {
         return OUT_OF_MEMORY;
+    }
 
     /* Set up the new slot and borrow some of the fields of the context for the
     argument to INP */
@@ -112,7 +113,6 @@ int sched_exec(char* filename) {
     /* Start loading the program */
     asm("INP", io);
     Q_Enqueue(g_ReadyQueue, &g_ProcessTable[slot]);
-    while(io->op >= 0) {}
     return slot;
 }
 
@@ -124,7 +124,11 @@ static void dumpProcessInfo(ProcessInfo_t* block) {
     asm("OUTS", block->pname);
     asm("OUTS", "\nState: ");
     asm("OUTS", itostr(block->state, buff));
-    asm("OUTS", "\nContext: ");
+    asm("OUTS", "\nWakes at: ");
+    asm("OUTS", itostr(block->wakeAt, buff));
+    asm("OUTS", " (it is currently ");
+    asm("OUTS", itostr(*(int*)TIMER_TIME, buff));
+    asm("OUTS", ")\nContext: ");
     asm("OUTS", "\n-> SP = 0x");
     asm("OUTS", xtostr(block->context.sp, buff));
     asm("OUTS", "\n-> FLAGS = 0x");
@@ -202,6 +206,12 @@ void sched_exitCurrent(ProcessorState_t* context) {
     nextWithStates(context, FREE_SLOT, RUNNING);
 }
 
+void sched_sleepCurrent(ProcessorState_t* context, int wakeAt) {
+    g_CurrentProcess->wakeAt = *((int*)TIMER_TIME) + wakeAt;
+    Q_Enqueue(g_ReadyQueue, g_CurrentProcess);
+    nextWithStates(context, SLEEPING, RUNNING);
+}
+
 static ProcessInfo_t* findNextReady() {
     ProcessInfo_t* next = NULL;
     int readyCount = Q_Elements(g_ReadyQueue);
@@ -210,13 +220,18 @@ static ProcessInfo_t* findNextReady() {
     // ready, then fall out of the loop and start the OS
     while(readyCount > 0 && next == NULL) {
         next = (ProcessInfo_t*)Q_Dequeue(g_ReadyQueue);
-        // asm("OUTS", "Candidate is ");
-        // asm("OUTS", next->pname);
-        // asm("OUTS", "\n");
+        //asm("OUTS", "Candidate is ");
+        //dumpProcessInfo(next);
         if (next->state == LOADING) {
             // asm("OUTS", "Candidate is loading\n");
             if (finalizeLoading(next) != 0) {
                 // asm("OUTS", "Candidate wasn't done loading\n");
+                Q_Enqueue(g_ReadyQueue, next);
+                next = NULL;
+                readyCount--;
+            }
+        } else if (next->state == SLEEPING) {
+            if (*((int*)TIMER_TIME) < next->wakeAt) {
                 Q_Enqueue(g_ReadyQueue, next);
                 next = NULL;
                 readyCount--;

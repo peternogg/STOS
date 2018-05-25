@@ -27,6 +27,8 @@ static void getInteger(SyscallArg_t* argument, int limit);
 static void startNewProgram(SyscallArg_t* argument, int limit);
 static void exitCurrentProgram();
 static void yieldCPU(SyscallArg_t* argument);
+static void sleepCurrentProcess(SyscallArg_t* argument);
+
 static void trapHandler(SyscallArg_t* argument);
 static void systrap(SyscallArg_t* argument);
 static void timerInterrupt();
@@ -53,7 +55,7 @@ void startup() {
     my_mem_init((void*)lowLimit, memorySize);
 
     sched_init();
-    sched_exec("user1.slb");
+    sched_exec("user.slb");
 
     *((int*)TIMER_CSR) = 0;
     *((int*)TIMER_LIMIT) = TIMER_INTERVAL;
@@ -116,10 +118,9 @@ static void trapHandler(SyscallArg_t* argument) {
         return;
     }
 
-    // if (argument->call == HALT)
-    //     asm("HALT");
-    // else
-    if (argument->call == PRINTS)
+    if (argument->call == HALT)
+        asm("HALT");
+    else if (argument->call == PRINTS)
         printString(argument, limit);
     else if (argument->call == GETS)
         getString(argument, limit);
@@ -131,6 +132,10 @@ static void trapHandler(SyscallArg_t* argument) {
         startNewProgram(argument, limit);
     else if (argument->call == YIELD)
         yieldCPU(argument);
+    else if (argument->call == SLEEP)
+        sleepCurrentProcess(argument);
+    else if (argument->call == GET_TIME)
+        argument->size = *(int*)TIMER_TIME;
     else
         argument->status = NO_SUCH_CALL;
 }
@@ -202,6 +207,16 @@ static void yieldCPU(SyscallArg_t* argument) {
     argument->status = OK;
     sched_next(state);
 
+
     // Reset the timer to give the next process its full timeslice
     *((int*)TIMER_COUNT) = 0;
+}
+
+static void sleepCurrentProcess(SyscallArg_t* argument) {
+    if (argument->size < 0) {
+        argument->status = INVALID_ARGUMENT;
+        return;
+    }
+
+    sched_sleepCurrent(state, argument->size);
 }

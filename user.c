@@ -108,15 +108,24 @@ void checkPrintingAndBeyondLPFails() {
 /******************************************************************************/
 // Thread Safety: None
 int main() {
-//     globalString = "This is the global string!\n";
+    globalString = "This is the global string!\n";
 
-//     checkPrintingFromGlobalSucceeds();
-//     checkPrintingIntegersWorks();
-//     checkPrintingPastLPFails();
-//     checkPrintingNULLFails();
-//     checkPrintingFromRightUnderStringLimitSucceeds();
-//     checkPrintingAndBeyondLPFails();
+    int count = 9999999;
+    exec("user1.slb");
+
+    checkPrintingFromGlobalSucceeds();
+    //sleep(count);
+    checkPrintingIntegersWorks();
+    //sleep(count);
+    checkPrintingPastLPFails();
+    //sleep(count);
+    checkPrintingNULLFails();
+    //sleep(count);
+    checkPrintingFromRightUnderStringLimitSucceeds();
+    //sleep(count);
+    checkPrintingAndBeyondLPFails();
+    //sleep(count);
     prints("User ran");
 
-    halt();
+    exit();
 }

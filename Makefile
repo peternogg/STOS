@@ -4,7 +4,7 @@ ASM     = slasm
 
 .PHONY: all kernel user clean archive
 
-all: kernel users
+all: kernel users user
 
 kernel: kernel.sl sched.sl mymalloc.sl queue.sl
 	$(ASM) $(DEBUG) $^

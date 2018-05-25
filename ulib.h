@@ -20,3 +20,4 @@ int halt();
 int printi(int value);
 int prints(char* string);
 int yield();
+int sleep(int sleepTime);
