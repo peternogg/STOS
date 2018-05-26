@@ -7,7 +7,6 @@ int main()
     
     //sleep(10000);
     exec("user2.slb");
-    exec("user2.slb");
 
     for (ii=0; ii<50; ii++)
     {

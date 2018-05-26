@@ -16,8 +16,11 @@ int exec(char* filename);
 int exit();
 int geti();
 int gets(char* buff);
+int getpid(); // Implement
+int getppid(); // Implement
 int halt();
 int printi(int value);
 int prints(char* string);
-int yield();
 int sleep(int sleepTime);
+int wait(int pid); // Implement
+int yield();

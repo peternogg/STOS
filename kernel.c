@@ -55,7 +55,7 @@ void startup() {
     my_mem_init((void*)lowLimit, memorySize);
 
     sched_init();
-    sched_exec("user.slb");
+    sched_exec("shell");
 
     *((int*)TIMER_CSR) = 0;
     *((int*)TIMER_LIMIT) = TIMER_INTERVAL;
@@ -136,6 +136,8 @@ static void trapHandler(SyscallArg_t* argument) {
         sleepCurrentProcess(argument);
     else if (argument->call == GET_TIME)
         argument->size = *(int*)TIMER_TIME;
+    else if (argument->call == WAIT) 
+        sched_waitOn(state, argument->size);
     else
         argument->status = NO_SUCH_CALL;
 }
@@ -155,9 +157,8 @@ static void printString(SyscallArg_t* argument, int limit) {
     argument->call = PRINTS_CALL;
     argument->size = 0;
     argument->status = RESULT_PENDING;
-    asm("INP", argument);
 
-    sched_IOYieldCurrent(state, (InpArg*)argument);
+    sched_BeginIO(state, (InpArg*)argument);
 }
 static void getString(SyscallArg_t* argument, int limit) {
     // There must be 256 bytes between argument and limit
@@ -169,9 +170,8 @@ static void getString(SyscallArg_t* argument, int limit) {
     argument->call = GETL_CALL;
     argument->size = 0;
     argument->status = RESULT_PENDING;
-    asm("INP", argument);
 
-    sched_IOYieldCurrent(state, (InpArg*)argument);
+    sched_BeginIO(state, (InpArg*)argument);
 }
 
 static void getInteger(SyscallArg_t* argument, int limit) {
@@ -183,11 +183,9 @@ static void getInteger(SyscallArg_t* argument, int limit) {
 
     argument->call = GETI_CALL;
     argument->size = 0;
-
     argument->status = RESULT_PENDING;
-    asm("INP", argument); // Reuse argument as IO block
 
-    sched_IOYieldCurrent(state, (InpArg*)argument);
+    sched_BeginIO(state, (InpArg*)argument);
 }
 
 static void startNewProgram(SyscallArg_t* argument, int limit) {
@@ -201,9 +199,9 @@ static void startNewProgram(SyscallArg_t* argument, int limit) {
         return;
     }
 
-    argument->status = OK;
-    sched_exec(argument->buffer);
-    //sched_IOYieldCurrent(state, (InpArg*)argument);
+    argument->status = RESULT_PENDING;
+    argument->size = sched_exec(argument->buffer);
+    sched_BeginIO(state, NULL);
 }
 
 static void exitCurrentProgram() {

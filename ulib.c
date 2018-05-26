@@ -26,7 +26,8 @@ static int syscall(SyscallArg_t* argument) {
         if (argument->buffer == NULL || argument->size == 0) {
             return ERR;
         }
-    } else if (argument->call == SLEEP) {
+    } else if (argument->call == SLEEP
+            || argument->call == WAIT) {
         if (argument->buffer != NULL || argument->size == 0)
             return ERR;
     } else {
@@ -171,6 +172,8 @@ int exec(char* filename) {
     
     if (syscall(&arg) == ERR || arg.status != OK)
         return ERR;
+
+    return arg.size;
 }
 
 /******************************************************************************/
@@ -222,4 +225,16 @@ int get_time() {
         return ERR;
     
     return arg.size;
+}
+
+int wait(int pid) {
+    SyscallArg_t arg;
+    arg.call = WAIT;
+    arg.buffer = NULL;
+    arg.size = pid;
+
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
+    
+    return OK;
 }

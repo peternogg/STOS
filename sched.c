@@ -9,6 +9,8 @@ static int g_LiveProcessCount;
 static ProcessInfo_t* findNextReady();
 static int findSlotWithStatus(char status, int start);
 static int finalizeLoading(ProcessInfo_t* process);
+static void deleteProcess(ProcessInfo_t* process);
+static void wakeIOs();
 
 static void dumpPTable();
 
@@ -34,17 +36,7 @@ void sched_init() {
     /* Set the idle process to the OS, and set up to idle */
     g_CurrentProcess = &g_ProcessTable[0];
     g_ProcessTable[0].state = RUNNING;
-    g_ProcessTable[0].pname[0] = 'k';
-    g_ProcessTable[0].pname[1] = 0;
-}
-
-int sched_userExec(SyscallArg_t* argument, ProcessorState_t* context) {
-    int slot = sched_exec(argument->buffer);
-    if (slot > 0) {
-        sched_IOYieldCurrent(context, (InpArg*)&g_ProcessTable[slot].context.lp);
-    }
-
-    return slot;
+    memcpy(&g_ProcessTable[0].pname, "kernel", sizeof("kernel"));
 }
 
 /*******************************************************************************
@@ -68,7 +60,6 @@ int sched_exec(char* filename) {
     int slot;
     void* base;
     int limit;
-    InpArg* io;
 
     /* Find an open process slot in the list */
     slot = findSlotWithStatus(FREE_SLOT, 0);
@@ -89,22 +80,21 @@ int sched_exec(char* filename) {
     g_ProcessTable[slot].state = LOADING;
     g_ProcessTable[slot].context.flag = FL_USER_MODE;
     g_ProcessTable[slot].context.bp = (int)base;
-
-    //asm("OUTS", "PTable after loading a program\n");
-    //dumpPTable();
-    // lp-ip-fp are contiguous words which aren't needed during loading
-    // (lp is set later, when the load finishes)
-    io = (InpArg*)&g_ProcessTable[slot].context.lp;
-    io->op = EXEC_CALL;
-    io->param1 = g_ProcessTable[slot].pname;
-    io->param2 = 0;
+    g_ProcessTable[slot].parent = sched_getPID();
+    g_ProcessTable[slot].waitedOnBy = 0;
+    
+    g_ProcessTable[slot].currentIO.op = EXEC_CALL;
+    g_ProcessTable[slot].currentIO.param1 = filename;
+    g_ProcessTable[slot].currentIO.param2 = 0;
     /* Set up the registers for inp */
     asm2("POPREG", BP_REG, base);
     asm2("POPREG", LP_REG, limit);
     /* Start loading the program */
-    asm("INP", io);
+    asm("INP", &g_ProcessTable[slot].currentIO);
     Q_Enqueue(g_ReadyQueue, &g_ProcessTable[slot]);
     g_LiveProcessCount++;
+
+    //dumpPTable();
     return slot;
 }
 
@@ -114,14 +104,16 @@ static void dumpProcessInfo(ProcessInfo_t* block) {
     asm("OUTS", xtostr((int)block, buff));
     asm("OUTS", "\nName: ");
     asm("OUTS", block->pname);
+    asm("OUTS", "\nParent: ");
+    asm("OUTS", itostr(block->parent, buff));
     asm("OUTS", "\nState: 0x");
     asm("OUTS", xtostr(block->state, buff));
     if (block->state == DOING_IO) {
-        asm("OUTS", "\nIO Address: ");
-        if (block->currentIO)
-            asm("OUTS", xtostr((int)block->currentIO, buff));
+        asm("OUTS", "\nDoing IO: ");
+        if (block->currentIO.op != 0)
+            asm("OUTS", xtostr(block->currentIO.op, buff));
         else
-            asm("OUTS", "(null)");
+            asm("OUTS", "No IO call registered?");
     }
     if (block->state == SLEEPING) {
         asm("OUTS", "\nWakes at: ");
@@ -148,7 +140,8 @@ static void dumpProcessInfo(ProcessInfo_t* block) {
 
 static void dumpProcessBlock(int idx) {
     ProcessInfo_t* block = &g_ProcessTable[idx];
-    dumpProcessInfo(block);
+    if (block->state != FREE_SLOT)
+        dumpProcessInfo(block);
 }
 
 static void dumpPTable() {
@@ -163,7 +156,7 @@ static void dumpPTable() {
     asm("OUTS", "\n==== END PTABLE DUMP ====\n");
 }
 
-static void nextWithStates(ProcessorState_t* context, char old, char new) {
+static void nextWithStates(ProcessorState_t* context, int old, int new) {
     memcpy(&g_CurrentProcess->context, context, sizeof(ProcessorState_t));
     g_CurrentProcess->state = old;
     g_CurrentProcess = findNextReady();
@@ -193,35 +186,39 @@ static void nextWithStates(ProcessorState_t* context, char old, char new) {
  * Thread safety: None
  */
 void sched_next(ProcessorState_t* context) {
-    int idx;
-    ProcessInfo_t* curr;
     if (g_CurrentProcess != &g_ProcessTable[0])
         Q_Enqueue(g_ReadyQueue, g_CurrentProcess);
 
-    // Check for IO which is done, and return the process to running
-    for (idx = 1; idx < PROC_MAX; idx++) {
-        curr = &g_ProcessTable[idx];
-        if (curr->state == DOING_IO) {
-            if (curr->currentIO->op < 0) {
-                curr->state = READY;
-                curr->currentIO = NULL;
-                Q_Enqueue(g_ReadyQueue, curr);
-            }
-        }
-    }
+    wakeIOs();
 
     nextWithStates(context, READY, RUNNING);
-    //dumpPTable();   
 }
 
 void sched_exitCurrent(ProcessorState_t* context) {
-    my_free(g_CurrentProcess->context.bp);
-    g_LiveProcessCount--;
-    if (g_LiveProcessCount <= 0)
-        asm("HALT");
+    //asm("OUTS", g_CurrentProcess->pname);
+    if (g_CurrentProcess->waitedOnBy != 0) {
+        asm("OUTS", "Has waiter");
+        // Wake up whatever is waiting on the process
+        ProcessInfo_t* proc = &g_ProcessTable[g_CurrentProcess->waitedOnBy];
 
-    nextWithStates(context, FREE_SLOT, RUNNING);
-    dumpPTable();
+        proc->state = READY;
+        Q_Enqueue(g_ReadyQueue, proc);
+        deleteProcess(g_CurrentProcess);
+    } else {
+        asm("OUTS", "Has no waiter");
+        if (g_CurrentProcess->parent != 0)
+            g_CurrentProcess->state = ZOMBIE;
+        else
+            deleteProcess(g_CurrentProcess);
+    }
+    
+    if (g_LiveProcessCount <= 0) {
+        asm("OUTS", "OS Shutting Down\n");
+        asm("HALT");
+    }
+
+    nextWithStates(context, g_CurrentProcess->state, RUNNING);
+    
 }
 
 void sched_sleepCurrent(ProcessorState_t* context, int wakeAt) {
@@ -230,26 +227,70 @@ void sched_sleepCurrent(ProcessorState_t* context, int wakeAt) {
     nextWithStates(context, SLEEPING, RUNNING);
 }
 
-void sched_IOYieldCurrent(ProcessorState_t* context, InpArg* ioInfo) {
-    g_CurrentProcess->currentIO = ioInfo;
+int sched_waitOn(ProcessorState_t* context, int waitPID) {
+    asm("OUTS", g_CurrentProcess->pname);
+    asm("OUTS", "\n");
+    
+    // PID outside of table?
+    if (waitPID < 1 || waitPID > PROC_MAX) {
+        return -1;
+    }
+
+    if (g_ProcessTable[waitPID].state == ZOMBIE) {
+        asm("OUTS", "Zombie\n");
+        // The process is already dead, so we need to collect it
+        deleteProcess(&g_ProcessTable[waitPID]);
+    } else {
+        asm("OUTS", "Alive\n");
+        dumpProcessBlock(waitPID);
+        g_ProcessTable[waitPID].waitedOnBy = sched_getPID();
+        nextWithStates(context, WAITING, RUNNING);
+    }
+
+    //dumpPTable();
+
+    return 0;
+}
+
+void sched_BeginIO(ProcessorState_t* context, InpArg* ioInfo) {
+    if (ioInfo != NULL) {
+        // Doing non-exec IO
+        memcpy(&g_CurrentProcess->currentIO, ioInfo, sizeof(InpArg));
+        asm("INP", &g_CurrentProcess->currentIO);
+    }
+
     nextWithStates(context, DOING_IO, RUNNING);
+}
+
+int sched_getPID() {
+    return (g_CurrentProcess - &g_ProcessTable[0]) / sizeof(ProcessInfo_t);
+}
+
+int sched_getPPID() {
+    return g_CurrentProcess->parent;
 }
 
 static ProcessInfo_t* findNextReady() {
     ProcessInfo_t* next = NULL;
+    int result;
     int readyCount = Q_Elements(g_ReadyQueue);
 
     // Try to find a process which is ready to run. If there's none that are 
     // ready, then fall out of the loop and start the OS
     while(readyCount > 0 && next == NULL) {
         next = (ProcessInfo_t*)Q_Dequeue(g_ReadyQueue);
-        //asm("OUTS", "Candidate is ");
-        //dumpProcessInfo(next);
         if (next->state == LOADING) {
-            // asm("OUTS", "Candidate is loading\n");
-            if (finalizeLoading(next) != 0) {
-                // asm("OUTS", "Candidate wasn't done loading\n");
+            result = finalizeLoading(next);
+            if (result == 2) {
+                // Error while loading - Clean up the process
+                deleteProcess(next);
+
+                next = NULL;
+                readyCount--;
+            } else if (result == 1) {
+                // Not fully loaded yet
                 Q_Enqueue(g_ReadyQueue, next);
+
                 next = NULL;
                 readyCount--;
             }
@@ -315,22 +356,22 @@ static int finalizeLoading(ProcessInfo_t* process) {
     // Otherwise, return 1
     //dumpPTable();
     int* stackSize;
-    InpArg* io = &process->context.lp;
 
-    if (io->op >= 0)
+    if (process->currentIO.op >= 0)
         return 1; // Not done loading
 
-    // Notify userspace of the finished loading
-    if (process->context.sp != NULL) {
-        *((int*)process->context.sp) = io->op;
+    // Notify the parent that the program finished loading
+    if (process->parent != 0) {
+        asm("OUTS", "Notifying parent of finished load\n");
+        g_ProcessTable[process->parent].currentIO.op = process->currentIO.op;
     }
 
-    if (io->op & 0x40000000) {
+    if (process->currentIO.op & 0x40000000) {
         return 2; // Error while loading
     }
 
     // Set the registers for the new process
-    stackSize = io->param2;
+    stackSize = process->currentIO.param2;
     process->context.sp = (int)stackSize + 4 - process->context.bp;
     process->context.lp = (int)stackSize + *stackSize;
     process->context.fp = process->context.sp;
@@ -343,4 +384,26 @@ static int finalizeLoading(ProcessInfo_t* process) {
     
     process->state = READY;
     return 0;
+}
+
+static void deleteProcess(ProcessInfo_t* process) {
+    my_free(process->context.bp);
+    process->state = FREE_SLOT;
+    g_LiveProcessCount--;
+}
+
+static void wakeIOs() {
+    int idx;
+    ProcessInfo_t* curr;
+    // Check for IO which is done, and return the process to running
+    for (idx = 1; idx < PROC_MAX; idx++) {
+        curr = &g_ProcessTable[idx];
+        if (curr->state == DOING_IO) {
+            if (curr->currentIO.op < 0) {
+                curr->state = READY;
+                memset(&curr->currentIO, 0, sizeof(InpArg));
+                Q_Enqueue(g_ReadyQueue, curr);
+            }
+        }
+    }
 }
