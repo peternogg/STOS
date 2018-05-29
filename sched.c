@@ -13,6 +13,8 @@ static void deleteProcess(ProcessInfo_t* process);
 static void wakeIOs();
 
 static void dumpPTable();
+static void dumpProcessBlock(int idx);
+static void dumpProcessInfo(ProcessInfo_t* process);
 
 /*******************************************************************************
  * Initializes the scheduler and sets the idle task to the context given
@@ -36,7 +38,7 @@ void sched_init() {
     /* Set the idle process to the OS, and set up to idle */
     g_CurrentProcess = &g_ProcessTable[0];
     g_ProcessTable[0].state = RUNNING;
-    memcpy(&g_ProcessTable[0].pname, "kernel", sizeof("kernel"));
+    memcpy(&g_ProcessTable[0].pname, "kernel", 7);
 }
 
 /*******************************************************************************
@@ -83,18 +85,22 @@ int sched_exec(char* filename) {
     g_ProcessTable[slot].parent = sched_getPID();
     g_ProcessTable[slot].waitedOnBy = 0;
     
-    g_ProcessTable[slot].currentIO.op = EXEC_CALL;
-    g_ProcessTable[slot].currentIO.param1 = filename;
-    g_ProcessTable[slot].currentIO.param2 = 0;
+    g_ProcessTable[slot].currentIO = (InpArg*)&g_ProcessTable[slot].context.lp;
+    g_ProcessTable[slot].currentIO->op = EXEC_CALL;
+    g_ProcessTable[slot].currentIO->param1 = filename;
+    g_ProcessTable[slot].currentIO->param2 = 0;
+
+    char buff[14];
+
     /* Set up the registers for inp */
     asm2("POPREG", BP_REG, base);
     asm2("POPREG", LP_REG, limit);
     /* Start loading the program */
-    asm("INP", &g_ProcessTable[slot].currentIO);
+    //asm("OUTS", itostr(g_ProcessTable[slot].currentIO->op, buff));
+    asm("INP", g_ProcessTable[slot].currentIO);
     Q_Enqueue(g_ReadyQueue, &g_ProcessTable[slot]);
     g_LiveProcessCount++;
 
-    //dumpPTable();
     return slot;
 }
 
@@ -108,13 +114,15 @@ static void dumpProcessInfo(ProcessInfo_t* block) {
     asm("OUTS", itostr(block->parent, buff));
     asm("OUTS", "\nState: 0x");
     asm("OUTS", xtostr(block->state, buff));
-    if (block->state == DOING_IO) {
+    asm("OUTS", "\nWaited on by: ");
+    asm("OUTS", itostr(block->waitedOnBy, buff));
+    //if (block->state == DOING_IO) {
         asm("OUTS", "\nDoing IO: ");
-        if (block->currentIO.op != 0)
-            asm("OUTS", xtostr(block->currentIO.op, buff));
+        if (block->currentIO->op != 0)
+            asm("OUTS", xtostr(block->currentIO->op, buff));
         else
             asm("OUTS", "No IO call registered?");
-    }
+    //}
     if (block->state == SLEEPING) {
         asm("OUTS", "\nWakes at: ");
         asm("OUTS", itostr(block->wakeAt, buff));
@@ -195,9 +203,7 @@ void sched_next(ProcessorState_t* context) {
 }
 
 void sched_exitCurrent(ProcessorState_t* context) {
-    //asm("OUTS", g_CurrentProcess->pname);
     if (g_CurrentProcess->waitedOnBy != 0) {
-        asm("OUTS", "Has waiter");
         // Wake up whatever is waiting on the process
         ProcessInfo_t* proc = &g_ProcessTable[g_CurrentProcess->waitedOnBy];
 
@@ -205,7 +211,6 @@ void sched_exitCurrent(ProcessorState_t* context) {
         Q_Enqueue(g_ReadyQueue, proc);
         deleteProcess(g_CurrentProcess);
     } else {
-        asm("OUTS", "Has no waiter");
         if (g_CurrentProcess->parent != 0)
             g_CurrentProcess->state = ZOMBIE;
         else
@@ -227,38 +232,28 @@ void sched_sleepCurrent(ProcessorState_t* context, int wakeAt) {
     nextWithStates(context, SLEEPING, RUNNING);
 }
 
-int sched_waitOn(ProcessorState_t* context, int waitPID) {
-    asm("OUTS", g_CurrentProcess->pname);
-    asm("OUTS", "\n");
-    
+int sched_waitOn(ProcessorState_t* context, int waitPID) {    
     // PID outside of table?
     if (waitPID < 1 || waitPID > PROC_MAX) {
         return -1;
     }
 
     if (g_ProcessTable[waitPID].state == ZOMBIE) {
-        asm("OUTS", "Zombie\n");
         // The process is already dead, so we need to collect it
         deleteProcess(&g_ProcessTable[waitPID]);
     } else {
-        asm("OUTS", "Alive\n");
-        dumpProcessBlock(waitPID);
         g_ProcessTable[waitPID].waitedOnBy = sched_getPID();
+
+        char buff[14];
+        //asm("OUTS", itostr(sched_getPID(), buff));
         nextWithStates(context, WAITING, RUNNING);
     }
-
-    //dumpPTable();
 
     return 0;
 }
 
 void sched_BeginIO(ProcessorState_t* context, InpArg* ioInfo) {
-    if (ioInfo != NULL) {
-        // Doing non-exec IO
-        memcpy(&g_CurrentProcess->currentIO, ioInfo, sizeof(InpArg));
-        asm("INP", &g_CurrentProcess->currentIO);
-    }
-
+    g_CurrentProcess->currentIO = ioInfo;
     nextWithStates(context, DOING_IO, RUNNING);
 }
 
@@ -355,29 +350,27 @@ static int finalizeLoading(ProcessInfo_t* process) {
     // If the process is done loading, then finalize its settings. 
     // Otherwise, return 1
     //dumpPTable();
+    char buff[14];
     int* stackSize;
 
-    if (process->currentIO.op >= 0)
+    if (process->currentIO->op >= 0)
         return 1; // Not done loading
 
     // Notify the parent that the program finished loading
     if (process->parent != 0) {
-        asm("OUTS", "Notifying parent of finished load\n");
-        g_ProcessTable[process->parent].currentIO.op = process->currentIO.op;
+        g_ProcessTable[process->parent].currentIO->op = process->currentIO->op;
     }
 
-    if (process->currentIO.op & 0x40000000) {
+    if (process->currentIO->op & 0x40000000) {
         return 2; // Error while loading
     }
-
+    
     // Set the registers for the new process
-    stackSize = process->currentIO.param2;
+    stackSize = process->currentIO->param2;
     process->context.sp = (int)stackSize + 4 - process->context.bp;
     process->context.lp = (int)stackSize + *stackSize;
     process->context.fp = process->context.sp;
     process->context.ip = 8;
-    //asm("OUTS", "Set user program's registers\n");
-    //dumpPTable();
 
     // Trim memory
     my_set_limit((void*)process->context.bp, (void*)process->context.lp);
@@ -399,9 +392,9 @@ static void wakeIOs() {
     for (idx = 1; idx < PROC_MAX; idx++) {
         curr = &g_ProcessTable[idx];
         if (curr->state == DOING_IO) {
-            if (curr->currentIO.op < 0) {
+            if (curr->currentIO->op < 0) {
                 curr->state = READY;
-                memset(&curr->currentIO, 0, sizeof(InpArg));
+                curr->currentIO = NULL;
                 Q_Enqueue(g_ReadyQueue, curr);
             }
         }

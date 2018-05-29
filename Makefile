@@ -1,6 +1,7 @@
-DEBUG   = -dbg
-CC      = stacklc
-ASM     = slasm
+DEBUG       = -dbg
+CC          = stacklc
+ASM         = slasm
+PROGRAMS    = user1.sl user2.sl user3.sl shell.sl nothing.sl exectest.sl
 
 .PHONY: all kernel user clean archive
 
@@ -12,12 +13,13 @@ kernel: kernel.sl sched.sl mymalloc.sl queue.sl
 user: user.sl ulib.sl
 	$(ASM) $(DEBUG) $^
 
-users: user1.sl user2.sl user3.sl ulib.sl shell.sl nothing.sl
+users: ulib.sl $(PROGRAMS)
 	$(ASM) $(DEBUG) user1.sl ulib.sl
 	$(ASM) $(DEBUG) user2.sl ulib.sl
 	$(ASM) $(DEBUG) user3.sl ulib.sl
 	$(ASM) $(DEBUG) shell.sl ulib.sl
 	$(ASM) $(DEBUG) nothing.sl ulib.sl
+	$(ASM) $(DEBUG) exectest.sl ulib.sl
 
 %.sl: %.c
 	$(CC) $(DEBUG) -c $^

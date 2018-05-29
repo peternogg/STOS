@@ -3,10 +3,12 @@
 int main()
 {
     int ii;
+    int u1;
+    int u2;
     //prints("Hello");
     
     //sleep(10000);
-    exec("user2.slb");
+    u1 = exec("user2.slb");
 
     for (ii=0; ii<50; ii++)
     {
@@ -14,7 +16,9 @@ int main()
         printi(ii);
         prints(" one\n");
     }
-    exec("user3.slb");
+    
+    wait(u1);
+    u2 = exec("user3.slb");
 
 
     for (ii=50; ii<100; ii++)
@@ -24,6 +28,7 @@ int main()
     }
 
     prints("Finished one!\n");
+    wait(u2);
 
     exit();
 

@@ -13,7 +13,9 @@ int main();
 static int syscall(SyscallArg_t* argument) {
     if (argument->call == HALT 
      || argument->call == EXIT 
-     || argument->call == YIELD)
+     || argument->call == YIELD
+     || argument->call == GET_PID
+     || argument->call == GET_PPID)
     {
         if (argument->buffer != NULL || argument->size != 0) {
             return ERR;
@@ -127,8 +129,6 @@ int geti() {
     arg.buffer = (char*)&val;
     arg.size = sizeof(int);
 
-    
-
     if (syscall(&arg) == ERR || arg.status != OK)
         return ERR;
 
@@ -148,6 +148,30 @@ int gets(char* buff) {
         return ERR;
 
     return OK;
+}
+
+int getpid() {
+    SyscallArg_t arg;
+    arg.call = GET_PID;
+    arg.buffer = NULL;
+    arg.size = 0;
+
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
+
+    return arg.size;
+}
+
+int getppid() {
+    SyscallArg_t arg;
+    arg.call = GET_PPID;
+    arg.buffer = NULL;
+    arg.size = 0;
+
+    if (syscall(&arg) == ERR || arg.status != OK)
+        return ERR;
+
+    return arg.size;
 }
 
 int exit() {

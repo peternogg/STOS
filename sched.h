@@ -42,7 +42,7 @@ typedef struct {
     // System time to sleep until
     int wakeAt;
     // The most recent IO request the process issued
-    InpArg currentIO;
+    InpArg* currentIO;
     // The PID of the process which started this one
     int parent;
     // The PID of whatever process is waiting on this process

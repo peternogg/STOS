@@ -3,6 +3,7 @@
 int main()
 {
     int ii;
+    sleep(1000000);
     for (ii=0; ii<20; ii++)
     {
         printi(ii);
@@ -10,8 +11,6 @@ int main()
     }
 
     prints("Finished two!\n");
-
-    //exit();
 
     return 0;
 }

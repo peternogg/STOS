@@ -134,11 +134,19 @@ static void trapHandler(SyscallArg_t* argument) {
         yieldCPU(argument);
     else if (argument->call == SLEEP)
         sleepCurrentProcess(argument);
-    else if (argument->call == GET_TIME)
+    else if (argument->call == GET_TIME) {
         argument->size = *(int*)TIMER_TIME;
-    else if (argument->call == WAIT) 
+        argument->status = OK;
+    } else if (argument->call == WAIT) {
         sched_waitOn(state, argument->size);
-    else
+        argument->status = OK;
+    } else if (argument->call == GET_PID) {
+        argument->size = sched_getPID();
+        argument->status = OK;
+    } else if (argument->call == GET_PPID) {
+        argument->size = sched_getPPID();
+        argument->status = OK;
+    } else
         argument->status = NO_SUCH_CALL;
 }
 
@@ -158,6 +166,7 @@ static void printString(SyscallArg_t* argument, int limit) {
     argument->size = 0;
     argument->status = RESULT_PENDING;
 
+    asm("INP", argument);
     sched_BeginIO(state, (InpArg*)argument);
 }
 static void getString(SyscallArg_t* argument, int limit) {
@@ -171,6 +180,7 @@ static void getString(SyscallArg_t* argument, int limit) {
     argument->size = 0;
     argument->status = RESULT_PENDING;
 
+    asm("INP", argument);
     sched_BeginIO(state, (InpArg*)argument);
 }
 
@@ -185,6 +195,7 @@ static void getInteger(SyscallArg_t* argument, int limit) {
     argument->size = 0;
     argument->status = RESULT_PENDING;
 
+    asm("INP", argument);
     sched_BeginIO(state, (InpArg*)argument);
 }
 
@@ -201,7 +212,9 @@ static void startNewProgram(SyscallArg_t* argument, int limit) {
 
     argument->status = RESULT_PENDING;
     argument->size = sched_exec(argument->buffer);
-    sched_BeginIO(state, NULL);
+    if (argument->size < 0)
+        argument->size = -1;
+    sched_BeginIO(state, (InpArg*)argument);
 }
 
 static void exitCurrentProgram() {

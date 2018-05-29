@@ -110,22 +110,27 @@ void checkPrintingAndBeyondLPFails() {
 int main() {
     globalString = "This is the global string!\n";
 
-    int count = 9999999;
-    exec("user1.slb");
+    int count = 200000;
+
+    prints("This is user. My PID is ");
+    printi(getpid());
+    prints("\nMy parent's PID is ");
+    printi(getppid());
+    prints(". Here's some printing tests!\n");
 
     checkPrintingFromGlobalSucceeds();
-    //sleep(count);
+    sleep(count);
     checkPrintingIntegersWorks();
-    //sleep(count);
+    sleep(count);
     checkPrintingPastLPFails();
-    //sleep(count);
+    sleep(count);
     checkPrintingNULLFails();
-    //sleep(count);
+    sleep(count);
     checkPrintingFromRightUnderStringLimitSucceeds();
-    //sleep(count);
+    sleep(count);
     checkPrintingAndBeyondLPFails();
-    //sleep(count);
-    prints("User ran");
+    sleep(count);
+    prints("User ran\n");
 
     exit();
 }
