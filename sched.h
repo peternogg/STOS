@@ -1,3 +1,7 @@
+/************************
+ * Author: Peter Higginbotham 
+ * StacklOS scheduling subsystem public interface
+ */
 #pragma once
 
 #include <string.h>
@@ -12,6 +16,7 @@
 
 #define NO_SLOTS_AVAILABLE -1
 #define OUT_OF_MEMORY -2
+#define BAD_FILE_NAME -3
 
 // Process states
 #define RUNNING     0x01

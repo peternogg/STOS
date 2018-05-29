@@ -1,7 +1,7 @@
 DEBUG       = -dbg
 CC          = stacklc
 ASM         = slasm
-PROGRAMS    = user1.sl user2.sl user3.sl shell.sl nothing.sl exectest.sl
+PROGRAMS    = user1.sl user2.sl user3.sl shell.sl nothing.sl
 
 .PHONY: all kernel user clean archive
 
@@ -19,7 +19,6 @@ users: ulib.sl $(PROGRAMS)
 	$(ASM) $(DEBUG) user3.sl ulib.sl
 	$(ASM) $(DEBUG) shell.sl ulib.sl
 	$(ASM) $(DEBUG) nothing.sl ulib.sl
-	$(ASM) $(DEBUG) exectest.sl ulib.sl
 
 %.sl: %.c
 	$(CC) $(DEBUG) -c $^

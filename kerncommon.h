@@ -1,3 +1,8 @@
+/************************
+ * Author: Peter Higginbotham 
+ * Common definitions for the OS
+ */
+
 #pragma once
 
 #define NULL 0

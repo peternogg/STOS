@@ -1,3 +1,8 @@
+/************************
+ * Author: Phil Howard
+ * Modified by: Peter Higginbotham
+ * A test program which launches a pair of programs to test execs
+ */
 #include "ulib.h"
 
 int main()

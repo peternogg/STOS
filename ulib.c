@@ -5,8 +5,7 @@
 #include "ulib.h"
 
 #pragma startup ulib_startup
-// User code forward declaration
-int main();
+int main(); // User code forward declaration
 
 /******************************************************************************/
 // Thread Safety: Safe if argument is not shared between threads
@@ -57,13 +56,20 @@ static int syscall(SyscallArg_t* argument) {
     return argument->status;
 }
 
+/******************************************************************************
+ * Wraps a usermode program's startup function to force it to exit when it
+ * finishes.
+ * Thread Safety: None
+ */ 
 void ulib_startup() {
     main();
     exit();
 }
 
-/******************************************************************************/
-// Thread Safety: Safe
+/******************************************************************************
+* Count the number of characters in a string without exceeding the process's LP
+* Thread Safety: Safe if string is not modified
+*/
 static int safe_strlen(char* string) {
     int bp;
     int lp;
@@ -87,8 +93,10 @@ static int safe_strlen(char* string) {
         return length;
 }
 
-/******************************************************************************/
-// Thread Safety: Safe if argument is not shared between threads
+/******************************************************************************
+ * Print a string to the console
+ * Thread Safety: Safe if argument is not shared between threads
+ */
 int prints(char* string) {
     if (string == NULL)
         return ERR;
@@ -111,8 +119,10 @@ int prints(char* string) {
     return OK;
 }
 
-/******************************************************************************/
-// Thread Safety: Safe
+/******************************************************************************
+ * Print an integer to the screen
+ * Thread Safety: Safe
+ */
 int printi(int value) {
     char buff[20];
     itostr(value, buff);
@@ -120,8 +130,11 @@ int printi(int value) {
     return prints(buff);
 }
 
-/******************************************************************************/
-// Thread Safety: Safe
+/*******************************************************************************
+ * Get an integer value from the user
+ * Thread Safety: Safe
+ * Multitasking Safety: None
+ */
 int geti() {
     int val = 0;
     SyscallArg_t arg;
@@ -135,8 +148,11 @@ int geti() {
     return val;
 }
 
-/******************************************************************************/
-// Thread Safety: Safe if argument is not shared between threads
+/******************************************************************************* 
+ * Get a string from the user
+ * Thread Safety: Safe if argument is not shared between threads
+ * Multitasking Safety: None
+ */
 int gets(char* buff) {
     SyscallArg_t arg;
     
@@ -150,6 +166,10 @@ int gets(char* buff) {
     return OK;
 }
 
+/******************************************************************************* 
+ * Get the current process's PID
+ * Thread Safety: Safe
+ */
 int getpid() {
     SyscallArg_t arg;
     arg.call = GET_PID;
@@ -162,6 +182,10 @@ int getpid() {
     return arg.size;
 }
 
+/******************************************************************************* 
+ * Get the current process's parent's PID
+ * Thread Safety: Safe
+ */
 int getppid() {
     SyscallArg_t arg;
     arg.call = GET_PPID;
@@ -174,6 +198,10 @@ int getppid() {
     return arg.size;
 }
 
+/******************************************************************************* 
+ * Exit the current process
+ * Thread Safety: None
+ */
 int exit() {
     SyscallArg_t arg;
     arg.call = EXIT;
@@ -184,6 +212,10 @@ int exit() {
         return ERR;
 }
 
+/******************************************************************************* 
+ * Start a new process in the system with a given filename
+ * Thread Safety: Safe
+ */
 int exec(char* filename) {
     SyscallArg_t arg;
     arg.call = EXEC;
@@ -200,8 +232,10 @@ int exec(char* filename) {
     return arg.size;
 }
 
-/******************************************************************************/
-// Thread Safety: Unsafe
+/******************************************************************************* 
+ * Shut down the system immediately.
+ * Thread Safety: None
+ */
 int halt() {
     SyscallArg_t arg;
     arg.call = HALT;
@@ -214,7 +248,10 @@ int halt() {
     return OK;
 }
 
-// Yields the CPU for another task
+/******************************************************************************* 
+ * Give up the rest of the current timeslice for this process.
+ * Thread Safety: Safe
+ */
 int yield() {
     SyscallArg_t arg;
     arg.call = YIELD;
@@ -227,7 +264,14 @@ int yield() {
     return OK;
 }
 
+/******************************************************************************* 
+ * Set the current process to sleep for a number of instructions
+ * Thread Safety: Safe
+ */
 int sleep(int sleepTime) {
+    if (sleepTime < 0)
+        return ERR;
+
     SyscallArg_t arg;
     arg.call = SLEEP;
     arg.buffer = NULL;
@@ -239,6 +283,10 @@ int sleep(int sleepTime) {
     return OK;
 }
 
+/******************************************************************************* 
+ * Get the current 'time' on the system (the number of instructions since start)
+ * Thread Safety: Safe
+ */
 int get_time() {
     SyscallArg_t arg;
     arg.call = GET_TIME;
@@ -251,6 +299,10 @@ int get_time() {
     return arg.size;
 }
 
+/******************************************************************************* 
+ * Wait for a child process, as given by the PID argument
+ * Thread Safety: Safe
+ */
 int wait(int pid) {
     SyscallArg_t arg;
     arg.call = WAIT;

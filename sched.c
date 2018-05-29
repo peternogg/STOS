@@ -1,3 +1,8 @@
+/************************
+ * Author: Peter Higginbotham 
+ * The scheduling subsystem for StacklOS
+ */
+
 #include "sched.h"
 
 #define PROC_MAX 20
@@ -24,6 +29,7 @@ static void dumpProcessInfo(ProcessInfo_t* process);
  * Postconditions:
  *  g_ProcessTable is reset and any processes are 'killed'
  *  
+ * Thread Safety: None
  */
 void sched_init() {
     int i;
@@ -63,6 +69,9 @@ int sched_exec(char* filename) {
     void* base;
     int limit;
 
+    if (filename == NULL || *filename == 0)
+        return BAD_FILE_NAME;
+
     /* Find an open process slot in the list */
     slot = findSlotWithStatus(FREE_SLOT, 0);
     
@@ -90,13 +99,10 @@ int sched_exec(char* filename) {
     g_ProcessTable[slot].currentIO->param1 = filename;
     g_ProcessTable[slot].currentIO->param2 = 0;
 
-    char buff[14];
-
     /* Set up the registers for inp */
     asm2("POPREG", BP_REG, base);
     asm2("POPREG", LP_REG, limit);
     /* Start loading the program */
-    //asm("OUTS", itostr(g_ProcessTable[slot].currentIO->op, buff));
     asm("INP", g_ProcessTable[slot].currentIO);
     Q_Enqueue(g_ReadyQueue, &g_ProcessTable[slot]);
     g_LiveProcessCount++;
@@ -104,6 +110,17 @@ int sched_exec(char* filename) {
     return slot;
 }
 
+/*******************************************************************************
+ * Display information about a particular ProcessInfo_t structure. May affect
+ * timing as it uses a lot of OUTS instructions
+ * 
+ * Preconditions:
+ *  None
+ * Postconditions:
+ *  Displays, using OUTS instructions, the information in a PCB
+ *  
+ * Thread Safety: Race on block argument
+ */
 static void dumpProcessInfo(ProcessInfo_t* block) {
     char buff[14];
     asm("OUTS", "\nAddress: 0x");
@@ -146,12 +163,38 @@ static void dumpProcessInfo(ProcessInfo_t* block) {
     asm("OUTS", "\n== END BLOCK ==\n");
 }
 
+/*******************************************************************************
+ * Display information about a PCB in the process table. Will ignore free slots.
+ * 
+ * Preconditions:
+ *  idx references a Process block in the table which is not a FREE_SLOT
+ *  idx is within the bounds of the process table. This function does not do
+ *  bounds checking.
+ * Postconditions:
+ *  Displays information about the process
+ * 
+ * Arguments:
+ *  The index of a PCB in the table
+ *  
+ * Thread Safety: Race on reference PCB
+ */
 static void dumpProcessBlock(int idx) {
     ProcessInfo_t* block = &g_ProcessTable[idx];
     if (block->state != FREE_SLOT)
         dumpProcessInfo(block);
 }
 
+/*******************************************************************************
+ * Displays information about all the entries in the Process Table which are not
+ * FREE_SLOTs.
+ * 
+ * Preconditions:
+ *  None
+ * Postconditions:
+ *  Displays information about the process table
+ *  
+ * Thread Safety: Race on process table
+ */
 static void dumpPTable() {
     int i;
     asm("OUTS", "\n==== PTABLE DUMP ====\n");
@@ -164,6 +207,22 @@ static void dumpPTable() {
     asm("OUTS", "\n==== END PTABLE DUMP ====\n");
 }
 
+/*******************************************************************************
+ * Switch to the next process in the ready queue and set the state of the old
+ * (switched away from) process to old, and the state of the new (switched to)
+ * process to new.
+ * 
+ * Preconditions:
+ *  g_CurrentProcess is a valid process
+ *  context is a pointer to a valid interrupt call frame
+ *  
+ * Postconditions:
+ *  Switches from the current process to a different process which is ready.
+ *  This process may be the OS if no other process is ready to run, or it may
+ *  be the same process if it is the only process ready to run.
+ *  
+ * Thread Safety: None
+ */
 static void nextWithStates(ProcessorState_t* context, int old, int new) {
     memcpy(&g_CurrentProcess->context, context, sizeof(ProcessorState_t));
     g_CurrentProcess->state = old;
@@ -186,10 +245,8 @@ static void nextWithStates(ProcessorState_t* context, int old, int new) {
  *      was LOADING, then the scheduler finalizes the load and starts that slot.
  *  If no process is ready to run, then the scheduler will run the idle task in
  *      slot 0.
- * 
- * Returns:
- *      -1 if context is NULL.
- *      0 on success
+ *  Any processes whose IO processes completed are woken up and placed in the
+ *      ready queue
  * 
  * Thread safety: None
  */
@@ -202,6 +259,20 @@ void sched_next(ProcessorState_t* context) {
     nextWithStates(context, READY, RUNNING);
 }
 
+/*******************************************************************************
+ * Exits the current process and cleans up its memory if applicable.
+ * 
+ * Preconditions:
+ *  context is not null and points to a valid interrupt call frame
+ * Postconditions:
+ *  The process which called this function is freed and its slot is made into
+ *      a FREE_SLOT.
+ *  A new process is selected to run on the machine
+ *  The count of live processes is decremented, and if it is 0, then the machine
+ *      halts.
+ *  
+ * Thread Safety: None
+ */
 void sched_exitCurrent(ProcessorState_t* context) {
     if (g_CurrentProcess->waitedOnBy != 0) {
         // Wake up whatever is waiting on the process
@@ -223,48 +294,144 @@ void sched_exitCurrent(ProcessorState_t* context) {
     }
 
     nextWithStates(context, g_CurrentProcess->state, RUNNING);
-    
 }
 
+
+/*******************************************************************************
+ * Puts the current process to sleep
+ * 
+ * Preconditions:
+ *  Context is not null and references a valid interrupt call frame
+ *  wakeAt is non-negative.
+ * Postconditions:
+ *  The current process is put to sleep and will wake up in the next timeslice
+ *      after wakeAt instructions have passed.
+ *  A new process is selected to run on the machine.
+ *  
+ * Thread Safety: None
+ */
 void sched_sleepCurrent(ProcessorState_t* context, int wakeAt) {
+    if (wakeAt < 0)
+        return;
+
     g_CurrentProcess->wakeAt = *((int*)TIMER_TIME) + wakeAt;
     Q_Enqueue(g_ReadyQueue, g_CurrentProcess);
     nextWithStates(context, SLEEPING, RUNNING);
 }
 
+/*******************************************************************************
+ * Sets a process to wait on another process and block until the waited on
+ * process has exited.
+ * 
+ * Preconditions:
+ *  Context points to a valid interrupt call frame
+ *  waitPID is a valid PID, and the process it references is alive or a zombie
+ * Postconditions:
+ *  The current process is dequeued and blocks until the process it is waiting
+ *      on dies.
+ *   
+ * 
+ * Returns:
+ *  0 when successfully waiting. -1 on errors.
+ *  
+ * Thread Safety: None
+ */
 int sched_waitOn(ProcessorState_t* context, int waitPID) {    
     // PID outside of table?
     if (waitPID < 1 || waitPID > PROC_MAX) {
         return -1;
     }
 
+    // Is the PID alive?
+    if (g_ProcessTable[waitPID].state == FREE_SLOT)
+        return -1;
+
     if (g_ProcessTable[waitPID].state == ZOMBIE) {
         // The process is already dead, so we need to collect it
         deleteProcess(&g_ProcessTable[waitPID]);
     } else {
         g_ProcessTable[waitPID].waitedOnBy = sched_getPID();
-
-        char buff[14];
-        //asm("OUTS", itostr(sched_getPID(), buff));
         nextWithStates(context, WAITING, RUNNING);
     }
 
     return 0;
 }
 
+/*******************************************************************************
+ * Notify the scheduler that the current process is beginning an IO operation
+ * 
+ * Preconditions:
+ *  Context points to a valid interrupt call frame
+ *  g_CurrentProcess is a valid process which is executing an IO
+ *  ioInfo points to the IO argument block which is being operated on
+ * Postconditions:
+ *  The current process's state is changed to DOING_IO and that process blocks
+ *      until its IO is done.
+ *  
+ * Thread Safety: None
+ */
 void sched_BeginIO(ProcessorState_t* context, InpArg* ioInfo) {
     g_CurrentProcess->currentIO = ioInfo;
     nextWithStates(context, DOING_IO, RUNNING);
 }
 
+/*******************************************************************************
+ * Returns the PID of the current process
+ * 
+ * Preconditions:
+ *  g_CurrentProcess points within the process table
+ * Postconditions:
+ *  None
+ *  
+ * Returns:
+ *  The PID of g_CurrentProcess. If g_CurrentProcess is invalid, this may be 
+ *      nonsense.
+ * Thread Safety: None
+ */
 int sched_getPID() {
     return (g_CurrentProcess - &g_ProcessTable[0]) / sizeof(ProcessInfo_t);
 }
 
+/*******************************************************************************
+ * Returns the PID of the parent of g_CurrentProcess
+ * 
+ * Preconditions:
+ *  g_CurrentProcess is a valid process
+ * Postconditions:
+ *  None
+ *  
+ * Returns:
+ *  The PID of the parent of g_CurrentProcess
+ * 
+ * Thread Safety: None
+ */
 int sched_getPPID() {
     return g_CurrentProcess->parent;
 }
 
+
+/*******************************************************************************
+ * Dequeue a process from the ready queue and ensure that it is ready to execute
+ * The runtime of this function depends on the state of the ready queue
+ * 
+ * Preconditions:
+ *  g_ReadyQueue is a valid queue and only contains things which are READY,
+ *      LOADING, or SLEEPING, and only contains pointers to items in the 
+ *      process table.
+ * Postconditions:
+ *  If the next process was loading, and it is finished loading, then it is 
+ *      readyied for execution as in finalizeLoading(), and then the process
+ *      is started.
+ *  If the next process was sleeping, and its wake time has passed, then it is
+ *      woken up and begins running.
+ *  Note: If no processes are ready to run, this may make a full trip through
+ *      the ready queue and dequeue/requeue everything.
+ * 
+ * Returns: 
+ *  A valid Process, or PCB for the Idle process (the OS) if none are ready.
+ *  
+ * Thread Safety: None
+ */
 static ProcessInfo_t* findNextReady() {
     ProcessInfo_t* next = NULL;
     int result;
@@ -320,7 +487,7 @@ static ProcessInfo_t* findNextReady() {
  *  -1 on error or if no slot was found which matched the status
  *  A slot number in [1, PROC_MAX] if a qualifying slot was found
  * 
- * * Thread safety: Possible race condition on g_ProcessTable entries
+ * Thread safety: Possible race condition on g_ProcessTable entries
  */
 static int findSlotWithStatus(char status, int start) {
     int slot = -1;
@@ -346,6 +513,25 @@ static int findSlotWithStatus(char status, int start) {
     return slot;
 }
 
+/*******************************************************************************
+ * Checks and finalizes the loading of a process
+ * 
+ * Preconditions:
+ *  process is a non-null pointer to a process whose state is LOADING
+ * Postconditions:
+ *  The process's loading is finished and its initial registers are set.
+ *  Its parent is notified of the finished load and can be woken up later.
+ *  If there was an error while loading the program, then the process is not
+ *      altered, and the function returns 2.
+ *  If the process is not finished loading yet, then nothing is changed.
+ * 
+ * Returns:
+ *  0 on success.
+ *  1 if the process isn't yet done loading
+ *  2 if there was an error while loading the program
+ *  
+ * Thread Safety: None
+ */
 static int finalizeLoading(ProcessInfo_t* process) {
     // If the process is done loading, then finalize its settings. 
     // Otherwise, return 1
@@ -379,12 +565,35 @@ static int finalizeLoading(ProcessInfo_t* process) {
     return 0;
 }
 
+/*******************************************************************************
+ * Transform a process into a free slot
+ * 
+ * Preconditions:
+ *  process points to a valid PCB
+ * Postconditions:
+ *  The process's memory is freed for the memory manager, and it is noted as
+ *      a FREE_SLOT.
+ *  g_LiveProcessCount is decremented.
+ *  
+ * Thread Safety: None
+ */
 static void deleteProcess(ProcessInfo_t* process) {
     my_free(process->context.bp);
     process->state = FREE_SLOT;
     g_LiveProcessCount--;
 }
 
+/*******************************************************************************
+ * Try to wake all the processes whose IOs are done
+ * 
+ * Preconditions:
+ *  None
+ * Postconditions:
+ *  Processes whose blocking IO has finished are woken up and put in the ready
+ *      queue
+ *  
+ * Thread Safety: None
+ */
 static void wakeIOs() {
     int idx;
     ProcessInfo_t* curr;

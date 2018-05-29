@@ -1,3 +1,7 @@
+/************************
+ * Author: Phil Howard
+ * A test program which can be exec'd
+ */
 #include "ulib.h"
 
 int main()

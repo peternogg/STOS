@@ -1,3 +1,7 @@
+/************************
+ * Author: Peter Higginbotham 
+ * A simple shell for StacklOS which demonstrates some of its features
+ */
 #include <string.h>
 #include "ulib.h"
 

@@ -1,6 +1,6 @@
 /************************
  * Author: Peter Higginbotham 
- * External definitions for calling into the OS
+ * Kernel/Syscalls external interface definition
  */
 
 #pragma once

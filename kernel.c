@@ -1,6 +1,7 @@
 /**********************************************
  * Author: Peter Higginbotham
- * The source code a (cool, brand new) OS for the Stackl Interpreter
+ * The source code a (cool, brand new) OS for the Stackl Interpreter.
+ * Now includes something like multitasking!
  */
 #include <machine_def.h>
 #include <syscodes.h>
