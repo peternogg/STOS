@@ -287,11 +287,6 @@ void sched_exitCurrent(ProcessorState_t* context) {
         else
             deleteProcess(g_CurrentProcess);
     }
-    
-    if (g_LiveProcessCount <= 0) {
-        asm("OUTS", "OS Shutting Down\n");
-        asm("HALT");
-    }
 
     nextWithStates(context, g_CurrentProcess->state, RUNNING);
 }

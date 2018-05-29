@@ -31,7 +31,12 @@ void main() {
 
 static void handleCommand(char* cmd) {
     int childPID;
-    if (strcmp(cmd, "exit") == 0)
+    if (strcmp(cmd, "exit") == 0) {
+        if (getppid() == 0)
+            halt();
+        else
+            exit();
+    } else if (strcmp(cmd, "halt") == 0)
         halt();
     else if (strcmp(cmd, "help") == 0)
         printHelp();
@@ -55,17 +60,20 @@ static void printHelp() {
     prints("Supported commands:\n");
     prints("    help: Shows this help information.\n");
     prints("    ls: List the available programs this shell can run.\n");
-    prints("    exit: Halts the Stackl interpreter.\n");
+    prints("    exit: Exits this shell. If the shell's parent is 0, then stop the OS.\n");
+    prints("    halt: Halt the stackl machine immediately.\n");
 }
 
 static void listPrograms() {
     prints("== Known Programs ==\n");
     prints("    shell: This program. Launches other programs.\n");
-    prints("    user: Creates a bunch of output and launches user1, which launches users 2 and 3\n");
+    prints("    user: Creates a bunch of output and tests some user library calls\n");
     prints("    user1: Prints some numbers and starts user2 and user3\n");
     prints("    user2: Prints the numbers 0 to 19\n");
     prints("    user3: Prints the numbers 0 to 99\n");
     prints("    nothing: Does nothing. Starts and then exits. Simple test program.\n");
+    prints("    factorial: Calculates a large number, like 5000!, and prints it every 250 iterations.\n");
+    prints("    2factorial: Launches 2 factorials simultaneously to verify that two takes almost the same time as one.\n");
     prints("Other programs placed in this directory and which are executable by the stackl machine should also work\n");
     prints("So long as only one at a time asks for input.\n");
 }
