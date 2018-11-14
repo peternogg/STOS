@@ -28,4 +28,4 @@ clean:
 	-rm -f *.sl *.slb *.ast *.dbg
 
 archive:
-	tar -cv *.c *.h Makefile -f lab6_peter_higginbotham.tar
+	tar -cv *.c *.h Makefile README.txt -f lab6_peter_higginbotham.tar
